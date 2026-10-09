@@ -1,10 +1,10 @@
 # Nuclear Option Map
 
-A portable map core and browser map viewer for Nuclear Option. Rust provides map-coordinate and viewport operations, compiled natively or to WebAssembly. A TypeScript browser adapter draws locally extracted built-in map images with pan, zoom, tint and grid overlays.
+A portable map core and browser map viewer for Nuclear Option. Rust provides map-coordinate and viewport operations, compiled natively or to WebAssembly. A TypeScript browser adapter draws local map images, spatial raster tiles and vector contours with pan, zoom and grid overlays.
 
 Game files and extracted assets are not included. The offline extraction tools read a local client data directory; the viewer uses the resulting map manifest and images. No game process is required for image-based maps.
 
-The built-in viewer supports Heartland and Ignus Archipelago when extracted from a compatible client. It provides cursor-anchored wheel zoom, pointer pan, touch pinch, keyboard navigation, original sprite/tinted modes, and the game's 10 km grid. World coordinates use centered X/Z meters: +X east and +Z north.
+The built-in viewer supports Heartland and Ignus Archipelago when extracted from a compatible client. It provides cursor-anchored wheel zoom, pointer pan, touch pinch, keyboard navigation, original sprite/tinted modes, and the game's 10 km grid. Grid labels can appear along the edges, within cells, or be hidden. World coordinates use centered X/Z meters: +X east and +Z north.
 
 ## Build and run
 
@@ -37,6 +37,7 @@ const viewer = await createMapViewer(document.querySelector('canvas')!, {
   map: catalog.maps[0],
   mode: 'builtin',
   grid: true,
+  gridLabels: 'edges',
   tint: '#6f9d75',
   onPointerMove: point => console.log(point),
 });
@@ -48,9 +49,15 @@ viewer.destroy();
 
 Give the canvas a CSS width and height. The adapter observes size changes and pixel density. `builtin` multiplies the source sprite's RGB by the selected tint and preserves alpha; `raw` displays the exported sprite unchanged. The default green is configurable.
 
-The factory initializes WASM before constructing the viewer. Supported operations include `setMap`, `setMode`, `setGrid`, `setTint`, `fit`, `zoomIn`, `zoomOut`, `worldToScreen`, `screenToWorld` and `destroy`. `state` exposes the current map, zoom relative to fit, pixels per meter, viewport size and world center. `onViewChange` and `onPointerMove` let a host display its own controls and coordinates. Supply CORS-readable images when hosting assets on another origin.
+The factory initializes WASM before constructing the viewer. Supported operations include `setMap`, `setMode`, `setGrid`, `setGridLabels`, `setTint`, `setContourInterval`, `fit`, `zoomIn`, `zoomOut`, `worldToScreen`, `screenToWorld` and `destroy`. `state` exposes the current map, zoom relative to fit, pixels per meter, viewport size and world center. `onViewChange` and `onPointerMove` let a host display its own controls and coordinates. Pointer events include `gridReference` (for example `E4`), or `null` outside the map/grid. `gridCell`, `gridReference` and `gridRowLabel` are also exported for host overlays. Supply CORS-readable images when hosting assets on another origin.
+
+Use `viewer.setMap(otherImage, {preserveView: true})` to compare images with identical world dimensions while retaining zoom and center. The demo saves grid/label/tint preferences locally and discovers optional views from `/maps/variants.json`; the original source image is always available.
 
 The schema-one catalog contains `maps` with `id`, `name`, `widthMeters`, `heightMeters`, `image`, and `grid: {columns, rows, offsetX, offsetY}`. Image URLs resolve relative to the manifest. Grid lines use `x = -offsetX + column * 10000` and `z = offsetY - row * 10000`; grid extent is independent of sprite bounds.
+
+Detailed raster maps add `tiles: {tileSize, gutter, levels}`. Each level specifies `level`, `width`, `height`, `columns`, `rows` and `urlTemplate`, such as `tiles/{z}/{x}/{y}.webp`. Levels start at zero and double their pixel dimensions. A small `image` overview remains underneath while sharper visible tiles load and fade into place. The renderer limits concurrent requests and decoded raster cache memory, prefetches neighboring tiles, and retains loaded parent coverage during navigation. Built-in sprites can use the same delivery format without inventing extra source detail.
+
+Topographic maps can add `contours: {intervals: [20, 50, 100], levels}`. Each level supplies `level`, `columns`, `rows` and a URL template containing `{interval}`, `{x}` and `{y}` (optionally `{z}`). Contour JSON uses schema one, world-meter `bounds: [minX, minZ, maxX, maxZ]`, and `paths: [{id, elevationMeters, isIndex, points: [[x, z], ...]}]`. Lines and index-elevation labels render at screen resolution independently of the raster backdrop. `await viewer.setContourInterval(50)` switches intervals after replacement coarse coverage is ready. Only intervals actually supplied by the map are selectable.
 
 ## Native hosts and verification
 
@@ -63,6 +70,8 @@ pnpm exec vp test run
 uv run python -m unittest discover -s tests/extraction
 ```
 
-Terrain extraction exports map-prefab mesh instances and their resolved placement hierarchy. The included Blender importer compensates for OBJ handedness and converts the world to Blender axes. Materials and whole-map elevation rendering are further work. Mission loading and interactive 3D are planned extensions.
+Terrain extraction exports map-prefab mesh instances and their resolved placement hierarchy. The Blender importer compensates for OBJ handedness and converts the world to Blender axes. Offline tools produce terrain scenes, GLB models and elevation arrays, while the cartographic pipeline projects ground, roads and building footprints into raster tiles and extracts contour vectors from the ground triangles. Missing elevations stay explicitly unknown; roofs do not generate terrain contours.
+
+The demo discovers locally generated views from `/maps/variants.json`. Satellite rendering requires recovered scenery and material assignments; the game's coarse terrain-color texture alone does not provide that view. See [extraction tools](tools/README.md) for local processing and optional smaller GLB previews. Mission loading and an interactive 3D viewer are planned extensions.
 
 Own code is MIT licensed. Nuclear Option game assets are not included or covered by that license.

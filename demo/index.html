@@ -18,20 +18,16 @@
             <option value="">No map available</option>
           </select>
         </label>
-        <label class="field">
+        <label class="field" id="variant-field" hidden>
+          <span>View</span>
+          <select id="variant-select" disabled></select>
+        </label>
+        <label class="field" id="mode-field">
           <span>Image</span>
           <select id="mode-select" disabled>
             <option value="builtin">Builtin (tinted)</option>
             <option value="raw">Raw sprite</option>
           </select>
-        </label>
-        <label class="check">
-          <input type="checkbox" id="grid-toggle" checked disabled>
-          <span>Grid</span>
-        </label>
-        <label class="field tint">
-          <span>Tint</span>
-          <input type="color" id="tint-input" value="#6f9d75" disabled>
         </label>
         <div class="buttons">
           <button type="button" id="zoom-in" aria-label="Zoom in" title="Zoom in (+)" disabled>+</button>
@@ -39,14 +35,46 @@
           <button type="button" id="fit" title="Fit map (0)" disabled>Fit map</button>
         </div>
       </div>
-      <details class="help">
-        <summary>About</summary>
-        <div class="help-body">
-          <p>Click the map, then use arrow keys to pan, <kbd>+</kbd>/<kbd>-</kbd> to zoom and <kbd>0</kbd> to fit. Drag to pan; wheel or pinch to zoom.</p>
-          <p>Builtin shows the map sprite with the tint applied. Raw shows the sprite source unmodified.</p>
-          <p>Coordinates are meters from the map center: X east, Z north. Grid cells are 10 km wide.</p>
-        </div>
-      </details>
+      <div class="menus">
+        <details class="pop" id="settings">
+          <summary>Settings</summary>
+          <div class="pop-body settings-body">
+            <label class="check">
+              <input type="checkbox" id="grid-toggle" checked disabled>
+              <span>Grid</span>
+            </label>
+            <label class="field">
+              <span>Labels</span>
+              <select id="labels-select" disabled>
+                <option value="edges">Edges</option>
+                <option value="cells">Cells</option>
+                <option value="none">None</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Tint</span>
+              <input type="color" id="tint-input" value="#6f9d75" disabled>
+            </label>
+            <label class="field" id="contour-field" hidden>
+              <span>Contour interval</span>
+              <select id="contour-select" disabled>
+                <option value="20">20 m</option>
+                <option value="50" selected>50 m</option>
+                <option value="100">100 m</option>
+              </select>
+            </label>
+          </div>
+        </details>
+        <details class="pop help" id="about">
+          <summary>About</summary>
+          <div class="pop-body help-body">
+            <p>Click the map, then use arrow keys to pan, <kbd>+</kbd>/<kbd>-</kbd> to zoom and <kbd>0</kbd> to fit. Drag to pan; wheel or pinch to zoom.</p>
+            <p>Builtin shows the map sprite with the tint applied. Raw shows the sprite source unmodified. Satellite and topographic views use their own colors.</p>
+            <p>Coordinates are meters from the map center: X east, Z north. Grid cells are 10 km wide.</p>
+            <p>Detailed views load smaller tiles as you zoom. Topographic contour lines stay crisp, with the interval adjustable in Settings. Elevations are meters above the game's sea level.</p>
+          </div>
+        </details>
+      </div>
     </header>
 
     <main class="stage">
@@ -59,7 +87,7 @@
 
     <footer class="status">
       <span id="engine">Starting…</span>
-      <span id="coords" aria-label="Pointer position">x — · z —</span>
+      <span id="coords" aria-label="Pointer position">Grid — · x — · z —</span>
       <span id="zoom">Zoom —</span>
       <span id="size">Map —</span>
     </footer>

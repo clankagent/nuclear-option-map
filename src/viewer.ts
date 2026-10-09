@@ -1,14 +1,20 @@
 import init, { MapViewport } from '../pkg/nuclear_option_map.js';
-import { validateMap, validTint, type MapDefinition } from './catalog';
+import { gridReference, gridRowLabel, validateMap, validTint, type MapDefinition, type ContourInterval } from './catalog';
+import { disposeRaster, drawRaster, tintRaster, type TiledRaster } from './tiled-raster';
+import { PyramidRenderer, type TileStats } from './pyramid';
+import { ContourRenderer } from './contours';
 
 export type MapMode = 'builtin' | 'raw';
+export type GridLabels = 'edges' | 'cells' | 'none';
 export interface ViewState {
-  map: MapDefinition | null; mode: MapMode; grid: boolean; tint: string;
+  map: MapDefinition | null; mode: MapMode; grid: boolean; gridLabels: GridLabels; tint: string;
   zoom: number; scale: number; centerX: number; centerZ: number; width: number; height: number;
+  tileStats?: TileStats;
+  contourInterval?: ContourInterval;
 }
-export interface MapPointer { x: number; z: number; insideMap: boolean }
+export interface MapPointer { x: number; z: number; insideMap: boolean; gridReference: string | null }
 export interface MapViewerOptions {
-  map?: MapDefinition; mode?: MapMode; grid?: boolean; tint?: string;
+  map?: MapDefinition; mode?: MapMode; grid?: boolean; gridLabels?: GridLabels; tint?: string;
   onViewChange?: (state: ViewState) => void;
   onPointerMove?: (position: MapPointer | null) => void;
 }
@@ -24,9 +30,15 @@ export class MapViewer {
   private ctx: CanvasRenderingContext2D;
   private map: MapDefinition | null = null;
   private source: HTMLImageElement | null = null;
-  private tinted: HTMLCanvasElement | null = null;
+  private tinted: TiledRaster | null = null;
+  private pyramid: PyramidRenderer | null = null;
+  private contours: ContourRenderer | null = null;
+  private contourGeneration = 0;
+  private contourPending: ContourRenderer | null = null;
+  private preparingContours = new Set<ContourRenderer>();
   private mode: MapMode;
   private grid: boolean;
+  private gridLabels: GridLabels;
   private tint: string;
   private customTint: boolean;
   private width = 1;
@@ -56,6 +68,8 @@ export class MapViewer {
     this.ctx = ctx;
     this.mode = options.mode ?? 'builtin';
     this.grid = options.grid ?? true;
+    this.gridLabels = options.gridLabels ?? 'edges';
+    if (!['edges', 'cells', 'none'].includes(this.gridLabels)) throw new TypeError('Unknown grid label mode');
     this.tint = options.tint ?? '#819987';
     this.customTint = options.tint !== undefined;
     if (!validTint(this.tint)) throw new TypeError('Tint must be #RRGGBB');
@@ -91,7 +105,7 @@ export class MapViewer {
         this.pointers.set(e.pointerId, point); this.changed();
       }
       const world = this.screenToWorld(point.x, point.y);
-      this.options.onPointerMove?.({ ...world, insideMap: !!this.map && Math.abs(world.x) <= this.map.widthMeters / 2 && Math.abs(world.z) <= this.map.heightMeters / 2 });
+      this.options.onPointerMove?.({ ...world, insideMap: !!this.map && Math.abs(world.x) <= this.map.widthMeters / 2 && Math.abs(world.z) <= this.map.heightMeters / 2, gridReference: this.map ? gridReference(this.map, world.x, world.z) : null });
     }) as EventListener);
     const release = ((e: PointerEvent) => { this.pointers.delete(e.pointerId); }) as EventListener;
     for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) this.listen(name, release);
@@ -114,36 +128,75 @@ export class MapViewer {
   private assertAlive() { if (this.disposed) throw new Error('MapViewer has been destroyed'); }
   private local(e: MouseEvent) { const r = this.canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
   get state(): ViewState {
-    return { map: this.map ? validateMap(this.map) : null, mode: this.mode, grid: this.grid, tint: this.tint, zoom: this.viewport.zoom(), scale: this.viewport.scale(), centerX: this.viewport.centerX(), centerZ: this.viewport.centerZ(), width: this.width, height: this.height };
+    return { map: this.map ? validateMap(this.map) : null, mode: this.mode, grid: this.grid, gridLabels: this.gridLabels, tint: this.tint, zoom: this.viewport.zoom(), scale: this.viewport.scale(), centerX: this.viewport.centerX(), centerZ: this.viewport.centerZ(), width: this.width, height: this.height, ...(this.pyramid ? { tileStats: this.pyramid.stats } : {}), ...(this.contours ? { contourInterval: this.contours.interval } : {}) };
   }
   worldToScreen(x: number, z: number) { this.assertAlive(); const p = this.viewport.worldToScreen(x, z); return { x: p[0], y: p[1] }; }
   screenToWorld(x: number, y: number) { this.assertAlive(); const p = this.viewport.screenToWorld(x, y); return { x: p[0], z: p[1] }; }
-  async setMap(value: MapDefinition): Promise<void> {
+  async setMap(value: MapDefinition, options: { preserveView?: boolean } = {}): Promise<void> {
     this.assertAlive(); const map = validateMap(value), token = ++this.generation;
+    for (const pending of this.preparingContours) pending.destroy(); this.preparingContours.clear();
     const image = new Image(); image.crossOrigin = 'anonymous';
     await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error(`Unable to load map image: ${map.image}`)); image.src = map.image; });
     if (this.disposed || token !== this.generation) return;
     const tint = this.customTint ? this.tint : map.tint ?? '#819987';
+    let contours: ContourRenderer | null = null;
+    if (map.contours) {
+      contours = new ContourRenderer(map.contours, map.contours.intervals.includes(50) ? 50 : map.contours.intervals[0], map.widthMeters, map.heightMeters, () => { if (!this.disposed) this.draw(); });
+      this.preparingContours.add(contours);
+      try { await contours.prepare(); } catch (error) { contours.destroy(); throw error; }
+      finally { this.preparingContours.delete(contours); }
+      if (this.disposed || token !== this.generation) { contours.destroy(); return; }
+    }
     // Prepare pixels before changing the active map: failed/CORS-blocked loads leave it usable.
-    const tinted = this.makeTinted(image, tint);
-    const viewport = new MapViewport(map.widthMeters, map.heightMeters, this.width, this.height);
+    if (!Number.isSafeInteger(image.naturalWidth) || image.naturalWidth <= 0 || !Number.isSafeInteger(image.naturalHeight) || image.naturalHeight <= 0) throw new TypeError('Map image dimensions must be positive safe integers');
+    let tinted: TiledRaster | null;
+    try { tinted = this.mode === 'builtin' ? tintRaster(image, tint) : null; } catch (error) { contours?.destroy(); throw error; }
+    let viewport: MapViewport | undefined;
+    try { viewport = new MapViewport(map.widthMeters, map.heightMeters, this.width, this.height);
+    if (options.preserveView && this.map && this.map.widthMeters === map.widthMeters && this.map.heightMeters === map.heightMeters) {
+      viewport.zoomAt(this.viewport.zoom(), this.width / 2, this.height / 2);
+      viewport.pan(-this.viewport.centerX() * viewport.scale(), this.viewport.centerZ() * viewport.scale());
+    }
+    } catch (error) { viewport?.free(); disposeRaster(tinted); contours?.destroy(); throw error; }
+    disposeRaster(this.tinted);
+    this.pyramid?.destroy(); this.pyramid = null;
+    this.contourGeneration++; this.contourPending?.destroy(); this.contourPending = null; this.contours?.destroy(); this.contours = contours;
     this.viewport.free(); this.viewport = viewport; this.map = map; this.source = image;
-    this.tint = tint; this.tinted = tinted; this.changed();
+    this.tint = tint; this.tinted = tinted; this.resetPyramid(); this.changed();
   }
   zoomIn() { this.zoomBy(1.5); }
   zoomOut() { this.zoomBy(1 / 1.5); }
   private zoomBy(factor: number) { this.assertAlive(); this.viewport.zoomAt(factor, this.width / 2, this.height / 2); this.changed(); }
   fit() { this.assertAlive(); this.viewport.fit(); this.changed(); }
   setGrid(value: boolean) { this.assertAlive(); this.grid = value; this.changed(); }
-  setMode(value: MapMode) { this.assertAlive(); if (value !== 'builtin' && value !== 'raw') throw new TypeError('Unknown map mode'); this.mode = value; this.changed(); }
-  setTint(value: string) { this.assertAlive(); if (!validTint(value)) throw new TypeError('Tint must be #RRGGBB'); const tinted = this.source ? this.makeTinted(this.source, value) : null; this.tint = value; this.customTint = true; this.tinted = tinted; this.changed(); }
-  private makeTinted(source: HTMLImageElement, tint: string): HTMLCanvasElement {
-    const canvas = document.createElement('canvas'); canvas.width = source.naturalWidth; canvas.height = source.naturalHeight;
-    const ctx = canvas.getContext('2d')!; ctx.drawImage(source, 0, 0);
-    const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const channels = [1, 3, 5].map(start => parseInt(tint.slice(start, start + 2), 16) / 255);
-    for (let i = 0; i < data.data.length; i += 4) for (let c = 0; c < 3; c++) data.data[i + c] = Math.round(data.data[i + c] * channels[c]);
-    ctx.putImageData(data, 0, 0); return canvas;
+  setGridLabels(value: GridLabels) { this.assertAlive(); if (!['edges', 'cells', 'none'].includes(value)) throw new TypeError('Unknown grid label mode'); this.gridLabels = value; this.changed(); }
+  async setContourInterval(interval: ContourInterval): Promise<void> {
+    this.assertAlive();
+    if (!this.map?.contours || !this.map.contours.intervals.includes(interval)) throw new TypeError('Contour interval is unavailable for this map');
+    if (this.contours?.interval === interval && !this.contourPending) return;
+    const token = ++this.contourGeneration; this.contourPending?.destroy();
+    const next = new ContourRenderer(this.map.contours, interval, this.map.widthMeters, this.map.heightMeters, () => { if (!this.disposed) this.draw(); }); this.contourPending = next;
+    try { await next.prepare(); }
+    catch (error) { next.destroy(); if (token === this.contourGeneration) this.contourPending = null; throw error; }
+    if (this.disposed || token !== this.contourGeneration) { next.destroy(); return; }
+    this.contours?.destroy(); this.contours = next; this.contourPending = null; this.changed();
+  }
+  setMode(value: MapMode) { this.assertAlive(); if (value !== 'builtin' && value !== 'raw') throw new TypeError('Unknown map mode'); if (value === 'builtin' && this.source && !this.tinted) this.tinted = tintRaster(this.source, this.tint); this.mode = value; this.resetPyramid(); this.changed(); }
+  setTint(value: string) { this.assertAlive(); if (!validTint(value)) throw new TypeError('Tint must be #RRGGBB'); const tinted = this.source && this.mode === 'builtin' ? tintRaster(this.source, value) : null; disposeRaster(this.tinted); this.tint = value; this.customTint = true; this.tinted = tinted; this.resetPyramid(); this.changed(); }
+  private resetPyramid() {
+    this.pyramid?.destroy(); this.pyramid = null;
+    if (!this.map?.tiles) return;
+    const mode = this.mode, tint = this.tint;
+    this.pyramid = new PyramidRenderer(this.map.tiles, async (url, signal) => {
+      const response = await fetch(url, { signal }); if (!response.ok) throw new Error(`Tile request failed (${response.status})`);
+      const bitmap = await createImageBitmap(await response.blob());
+      if (signal.aborted) { bitmap.close(); throw new Error('Tile request aborted'); }
+      if (mode === 'raw') return { image: bitmap, width: bitmap.width, height: bitmap.height, dispose: () => bitmap.close() };
+      try {
+        const raster = tintRaster(bitmap, tint), canvas = raster.tiles[0].canvas;
+        return { image: canvas, width: bitmap.width, height: bitmap.height, dispose: () => disposeRaster(raster) };
+      } finally { bitmap.close(); }
+    }, () => { if (!this.disposed) this.draw(); });
   }
   private resize(notify = true) {
     if (this.disposed) return;
@@ -158,13 +211,21 @@ export class MapViewer {
     ctx.fillStyle = '#111a1a'; ctx.fillRect(0, 0, this.width, this.height);
     if (!this.map || !this.source) return;
     const m = this.map, a = this.worldToScreen(-m.widthMeters / 2, m.heightMeters / 2), b = this.worldToScreen(m.widthMeters / 2, -m.heightMeters / 2);
-    ctx.drawImage(this.mode === 'builtin' ? this.tinted! : this.source, a.x, a.y, b.x - a.x, b.y - a.y);
+    ctx.imageSmoothingQuality = 'high';
+    if (this.mode === 'builtin' && this.tinted) drawRaster(ctx, this.tinted, a.x, a.y, b.x - a.x, b.y - a.y, this.width, this.height);
+    else ctx.drawImage(this.source, a.x, a.y, b.x - a.x, b.y - a.y);
+    if (this.pyramid) {
+      const view = { x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y, screenWidth: this.width, screenHeight: this.height, dpr: this.canvas.width / this.width };
+      this.pyramid.update(view); this.pyramid.draw(ctx, view);
+    }
+    this.contours?.draw(ctx, { width: this.width, height: this.height, scale: this.viewport.scale(), dpr: this.canvas.width / this.width, worldToScreen: (x, z) => this.worldToScreen(x, z), screenToWorld: (x, y) => this.screenToWorld(x, y) });
     if (!this.grid) return;
     ctx.save(); ctx.beginPath(); ctx.rect(a.x, a.y, b.x - a.x, b.y - a.y); ctx.clip();
-    ctx.strokeStyle = 'rgba(216,235,224,.3)'; ctx.fillStyle = '#d8ebe0'; ctx.lineWidth = 1; ctx.font = '11px system-ui';
+    ctx.strokeStyle = 'rgba(216,235,224,.16)'; ctx.fillStyle = 'rgba(216,235,224,.58)'; ctx.lineWidth = 1; ctx.font = '10px system-ui';
     const dx = 10000, dz = 10000;
     const left = -m.grid.offsetX, top = m.grid.offsetY;
-    const visibleNW = this.screenToWorld(0, 0), visibleSE = this.screenToWorld(this.width, this.height);
+    const clipLeft = Math.max(0, a.x), clipRight = Math.min(this.width, b.x), clipTop = Math.max(0, a.y), clipBottom = Math.min(this.height, b.y);
+    const visibleNW = this.screenToWorld(clipLeft, clipTop), visibleSE = this.screenToWorld(clipRight, clipBottom);
     const startCol = Math.max(0, Math.floor((visibleNW.x - left) / dx));
     const endCol = Math.min(m.grid.columns, Math.ceil((visibleSE.x - left) / dx));
     const startRow = Math.max(0, Math.floor((top - visibleNW.z) / dz));
@@ -175,13 +236,28 @@ export class MapViewer {
     if (dz * this.viewport.scale() >= 18) for (let row = startRow; row <= endRow; row++) {
       const y = this.worldToScreen(0, top - row * dz).y; ctx.beginPath(); ctx.moveTo(a.x, y); ctx.lineTo(b.x, y); ctx.stroke();
     }
-    if (dx * this.viewport.scale() >= 64 && dz * this.viewport.scale() >= 48) {
+    if (this.gridLabels !== 'none' && dx * this.viewport.scale() >= (this.gridLabels === 'edges' ? 18 : 64) && dz * this.viewport.scale() >= (this.gridLabels === 'edges' ? 18 : 48) && clipRight - clipLeft > 48 && clipBottom - clipTop > 36) {
       ctx.shadowColor = '#111a1a'; ctx.shadowBlur = 3;
-      for (let row = startRow; row < endRow; row++) for (let col = startCol; col < endCol; col++) {
-        const p = this.worldToScreen(left + (col + .5) * dx, top - (row + .5) * dz);
-        let letters = '', n = row + 1;
-        while (n > 0) { n--; letters = String.fromCharCode(65 + n % 26) + letters; n = Math.floor(n / 26); }
-        ctx.fillText(`${letters}${col}`, p.x - 8, p.y + 4);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const centerCol = (col: number) => {
+        const x = this.worldToScreen(left + col * dx, 0).x;
+        return (Math.max(clipLeft, x) + Math.min(clipRight, x + dx * this.viewport.scale())) / 2;
+      };
+      const centerRow = (row: number) => {
+        const y = this.worldToScreen(0, top - row * dz).y;
+        return (Math.max(clipTop, y) + Math.min(clipBottom, y + dz * this.viewport.scale())) / 2;
+      };
+      if (this.gridLabels === 'cells') {
+        for (let row = startRow; row < endRow; row++) for (let col = startCol; col < endCol; col++) ctx.fillText(`${gridRowLabel(row)}${col}`, centerCol(col), centerRow(row));
+      } else {
+        for (let col = startCol; col < endCol; col++) {
+          const x = centerCol(col);
+          if (x >= clipLeft + 20 && x <= clipRight - 20) { ctx.fillText(String(col), x, clipTop + 11); ctx.fillText(String(col), x, clipBottom - 11); }
+        }
+        for (let row = startRow; row < endRow; row++) {
+          const y = centerRow(row);
+          if (y >= clipTop + 20 && y <= clipBottom - 20) { ctx.fillText(gridRowLabel(row), clipLeft + 14, y); ctx.fillText(gridRowLabel(row), clipRight - 14, y); }
+        }
       }
     }
     ctx.restore();
@@ -190,7 +266,9 @@ export class MapViewer {
     if (this.disposed) return; this.disposed = true; this.generation++;
     this.observer?.disconnect(); this.cleanups.forEach(fn => fn());
     for (const id of this.pointers.keys()) if (this.canvas.hasPointerCapture(id)) this.canvas.releasePointerCapture(id);
-    this.pointers.clear(); this.viewport.free(); this.source = null; this.tinted = null;
+    this.pointers.clear(); this.viewport.free(); this.source = null; disposeRaster(this.tinted); this.tinted = null; this.pyramid?.destroy(); this.pyramid = null;
+    this.contourGeneration++; this.contourPending?.destroy(); this.contours?.destroy(); this.contours = null; this.contourPending = null;
+    for (const pending of this.preparingContours) pending.destroy(); this.preparingContours.clear();
     this.canvas.style.touchAction = this.previousTouchAction;
     if (this.previousTabIndex === null) this.canvas.removeAttribute('tabindex'); else this.canvas.setAttribute('tabindex', this.previousTabIndex);
   }

@@ -59,9 +59,19 @@ describe('viewer construction lifecycle', () => {
     const viewer = await createMapViewer(surface.canvas, { onViewChange: changed });
     expect(changed).toHaveBeenCalledOnce();
     expect(surface.canvas.width).toBe(600);
+    expect(viewer.state.gridLabels).toBe('edges');
+    viewer.setGridLabels('cells'); expect(viewer.state.gridLabels).toBe('cells');
+    viewer.setGridLabels('none'); expect(viewer.state.gridLabels).toBe('none');
+    expect(() => viewer.setGridLabels('invalid' as never)).toThrow('grid label');
     viewer.destroy(); viewer.destroy();
     expect(surface.listeners.size).toBe(0);
     expect(surface.windowListeners.size).toBe(0);
     expect(core.free).toHaveBeenCalledOnce();
+  });
+  it('rejects invalid initial label modes before installing DOM resources', async () => {
+    const surface = surfaces();
+    await expect(createMapViewer(surface.canvas, { gridLabels: 'invalid' as never })).rejects.toThrow('grid label');
+    expect(surface.listeners.size).toBe(0);
+    expect(surface.canvas.style.touchAction).toBe('pan-x');
   });
 });

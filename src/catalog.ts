@@ -1,3 +1,7 @@
+export interface PyramidLevel { level: number; width: number; height: number; columns: number; rows: number; urlTemplate: string }
+export interface TilePyramid { tileSize: number; gutter?: number; levels: PyramidLevel[] }
+export type ContourInterval = 20 | 50 | 100;
+export interface ContourPyramid { intervals: ContourInterval[]; levels: { level: number; columns: number; rows: number; urlTemplate: string }[] }
 export interface MapDefinition {
   id: string;
   name: string;
@@ -7,10 +11,25 @@ export interface MapDefinition {
   /** Game grid counts and world-meter offsets. Cells are 10 km; x=-offsetX+column*10000, z=offsetY-row*10000. */
   grid: { columns: number; rows: number; offsetX: number; offsetY: number };
   tint?: string;
+  tiles?: TilePyramid;
+  contours?: ContourPyramid;
 }
 export interface MapCatalog { schemaVersion: 1; maps: MapDefinition[] }
 export function gridCell(map: MapDefinition, x: number, z: number) {
   return { column: Math.floor((map.grid.offsetX + x) / 10000), row: Math.floor((map.grid.offsetY - z) / 10000) };
+}
+/** Alphabetic row label: zero is A, 25 is Z, 26 is AA. */
+export function gridRowLabel(row: number): string {
+  if (!Number.isSafeInteger(row) || row < 0) throw new TypeError('Grid row must be a nonnegative safe integer');
+  let label = '', n = row + 1;
+  while (n > 0) { n--; label = String.fromCharCode(65 + n % 26) + label; n = Math.floor(n / 26); }
+  return label;
+}
+/** Returns a reference only within both the map image and declared game grid. */
+export function gridReference(map: MapDefinition, x: number, z: number): string | null {
+  if (!Number.isFinite(x) || !Number.isFinite(z) || Math.abs(x) > map.widthMeters / 2 || Math.abs(z) > map.heightMeters / 2) return null;
+  const { column, row } = gridCell(map, x, z);
+  return column >= 0 && column < map.grid.columns && row >= 0 && row < map.grid.rows ? `${gridRowLabel(row)}${column}` : null;
 }
 export function validTint(value: unknown): value is string {
   return typeof value === 'string' && /^#[\da-f]{6}$/i.test(value);
@@ -32,7 +51,30 @@ export function validateMap(value: unknown): MapDefinition {
     if (!Number.isFinite(m.grid[key])) throw new TypeError(`Grid ${key} must be finite`);
   }
   if (m.tint !== undefined && !validTint(m.tint)) throw new TypeError('Tint must be #RRGGBB');
-  return { ...m, grid: { ...m.grid } };
+  let tiles: TilePyramid | undefined;
+  if (m.tiles !== undefined) {
+    const p = m.tiles;
+    if (!p || !Number.isSafeInteger(p.tileSize) || p.tileSize < 64 || p.tileSize > 2048 || !Array.isArray(p.levels) || !p.levels.length || p.levels.length > 20) throw new TypeError('Invalid tile pyramid');
+    if (p.gutter !== undefined && (!Number.isSafeInteger(p.gutter) || p.gutter < 0 || p.gutter > 8 || p.tileSize + p.gutter * 2 > 2048)) throw new TypeError('Invalid tile gutter');
+    const levels = p.levels.map((l, index) => {
+      if (!l || l.level !== index || !Number.isSafeInteger(l.width) || !Number.isSafeInteger(l.height) || l.width < 1 || l.height < 1 || l.width > 1048576 || l.height > 1048576 || l.columns !== Math.ceil(l.width / p.tileSize) || l.rows !== Math.ceil(l.height / p.tileSize) || typeof l.urlTemplate !== 'string' || !l.urlTemplate.includes('{x}') || !l.urlTemplate.includes('{y}')) throw new TypeError('Invalid pyramid level');
+      if (index && (Math.ceil(l.width / 2) !== p.levels[index - 1].width || Math.ceil(l.height / 2) !== p.levels[index - 1].height)) throw new TypeError('Pyramid levels must double their dimensions');
+      return { ...l };
+    });
+    tiles = { tileSize: p.tileSize, gutter: p.gutter ?? 0, levels };
+  }
+  let contours: ContourPyramid | undefined;
+  if (m.contours !== undefined) {
+    const c = m.contours;
+    if (!c || !Array.isArray(c.intervals) || !c.intervals.length || c.intervals.some(i => ![20, 50, 100].includes(i)) || new Set(c.intervals).size !== c.intervals.length || !Array.isArray(c.levels) || !c.levels.length || c.levels.length > 12) throw new TypeError('Invalid contour pyramid');
+    const levels = c.levels.map((l, i) => {
+      if (!l || l.level !== i || !Number.isSafeInteger(l.columns) || !Number.isSafeInteger(l.rows) || l.columns < 1 || l.rows < 1 || l.columns > 8192 || l.rows > 8192 || (i > 0 && (l.columns !== c.levels[i - 1].columns * 2 || l.rows !== c.levels[i - 1].rows * 2)) || typeof l.urlTemplate !== 'string' || !['{interval}', '{x}', '{y}'].every(p => l.urlTemplate.includes(p))) throw new TypeError('Invalid contour level');
+      return { ...l };
+    });
+    if (levels[0].columns * levels[0].rows > 4) throw new TypeError('Contour root must contain at most four tiles');
+    contours = { intervals: [...c.intervals], levels };
+  }
+  return { ...m, grid: { ...m.grid }, ...(tiles ? { tiles } : {}), ...(contours ? { contours } : {}) };
 }
 export function validateMapCatalog(value: unknown, baseUrl: string): MapCatalog {
   const c = value as MapCatalog;
@@ -44,6 +86,16 @@ export function validateMapCatalog(value: unknown, baseUrl: string): MapCatalog 
     ids.add(map.id);
     map.image = new URL(map.image, baseUrl).href;
     if (!['http:', 'https:', 'file:', 'blob:', 'data:'].includes(new URL(map.image).protocol)) throw new TypeError('Unsupported map image URL');
+    if (map.tiles) for (const level of map.tiles.levels) {
+      const resolved = new URL(level.urlTemplate, baseUrl);
+      if (!['http:', 'https:', 'file:'].includes(resolved.protocol)) throw new TypeError('Unsupported tile URL');
+      level.urlTemplate = resolved.href.replace(/%7B/gi, '{').replace(/%7D/gi, '}');
+    }
+    if (map.contours) for (const level of map.contours.levels) {
+      const resolved = new URL(level.urlTemplate, baseUrl);
+      if (!['http:', 'https:', 'file:'].includes(resolved.protocol)) throw new TypeError('Unsupported contour URL');
+      level.urlTemplate = resolved.href.replace(/%7B/gi, '{').replace(/%7D/gi, '}');
+    }
     return map;
   });
   return { schemaVersion: 1, maps };
