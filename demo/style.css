@@ -1,0 +1,176 @@
+:root {
+  color-scheme: dark;
+  --bg: #1b1d20;
+  --panel: #222529;
+  --field: #2a2d32;
+  --line: #3a3e44;
+  --text: #e4e6e9;
+  --muted: #9097a0;
+  --accent: #8fb996;
+  --focus: #9cc7ff;
+  --hit: 32px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.4 Arial, Helvetica, sans-serif;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+h1 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  flex: 1 1 auto;
+}
+
+.field, .check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.check { color: var(--text); }
+
+select, button, input[type="color"] {
+  min-height: var(--hit);
+  font: inherit;
+  color: var(--text);
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+select { padding: 0 8px; max-width: 14rem; }
+button { padding: 0 12px; cursor: pointer; }
+button:hover:not(:disabled), select:hover:not(:disabled) { border-color: #5a5f67; }
+input[type="color"] { width: 44px; padding: 2px; cursor: pointer; }
+input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+.check { cursor: pointer; min-height: var(--hit); }
+
+.buttons { display: inline-flex; gap: 4px; }
+.buttons button:not(#fit) { min-width: var(--hit); padding: 0; font-size: 18px; line-height: 1; }
+
+:disabled { opacity: 0.45; cursor: not-allowed; }
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.help { position: relative; margin-left: auto; color: var(--muted); }
+.help summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--hit);
+  padding: 0 6px;
+  cursor: pointer;
+}
+.help-body {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 5;
+  width: min(22rem, calc(100vw - 24px));
+  padding: 4px 12px 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+.help-body p { margin: 8px 0; }
+code, kbd { font-family: Consolas, monospace; font-size: 12px; color: var(--accent); }
+
+.stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: #121416;
+}
+
+#map-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+#map-canvas:focus-visible { outline-offset: -3px; }
+
+.overlay {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  max-width: min(26rem, calc(100% - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  background: rgba(34, 37, 41, 0.94);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  pointer-events: none;
+}
+.overlay[hidden] { display: none; }
+.overlay span { color: var(--muted); overflow-wrap: anywhere; }
+.overlay.error { border-color: #a65a5a; }
+.overlay.error strong { color: #e8a0a0; }
+
+.status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 20px;
+  padding: 6px 12px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.status #coords { min-width: 16rem; color: var(--text); }
+
+@media (max-width: 640px) {
+  :root { --hit: 44px; }
+  .bar { padding: 8px; gap: 4px 12px; }
+  .controls { gap: 8px; }
+  .field { flex: 1 1 100%; }
+  .field select { flex: 1; max-width: none; }
+  .field.tint { flex: 0 0 auto; }
+  .buttons { flex: 1 1 100%; }
+  .buttons button { flex: 1; }
+  .buttons button:not(#fit) { min-width: var(--hit); flex: 0 0 var(--hit); }
+  .buttons #fit { flex: 1; }
+  .help { margin-left: 0; }
+  .status { gap: 2px 14px; padding: 6px 8px; }
+  .status #coords { min-width: 0; }
+}
