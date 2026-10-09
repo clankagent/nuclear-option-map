@@ -66,6 +66,7 @@ export class MapViewer {
   private width = 1;
   private height = 1;
   private disposed = false;
+  private drawFrame: number | null = null;
   private generation = 0;
   private observer?: ResizeObserver;
   private cleanups: (() => void)[] = [];
@@ -275,6 +276,13 @@ export class MapViewer {
     }
   }
   private draw() {
+    if (this.disposed || this.drawFrame !== null) return;
+    this.drawFrame = requestAnimationFrame(() => {
+      this.drawFrame = null;
+      if (!this.disposed) this.render();
+    });
+  }
+  private render() {
     const ctx = this.ctx; ctx.setTransform(this.canvas.width / this.width, 0, 0, this.canvas.height / this.height, 0, 0);
     ctx.fillStyle = '#111a1a'; ctx.fillRect(0, 0, this.width, this.height);
     if (!this.map || !this.source) return;
@@ -334,6 +342,8 @@ export class MapViewer {
   }
   destroy() {
     if (this.disposed) return; this.disposed = true; this.generation++;
+    if (this.drawFrame !== null) cancelAnimationFrame(this.drawFrame);
+    this.drawFrame = null;
     this.observer?.disconnect(); this.cleanups.forEach(fn => fn());
     for (const id of this.pointers.keys()) if (this.canvas.hasPointerCapture(id)) this.canvas.releasePointerCapture(id);
     this.pointers.clear(); this.viewport.free(); this.source = null; disposeRaster(this.tinted); this.tinted = null; this.pyramid?.destroy(); this.pyramid = null;

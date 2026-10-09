@@ -61,6 +61,8 @@ Topographic maps can add `contours: {intervals: [10, 20, 50, 100], levels}`. Eac
 
 `contourSmoothingMeters` defaults to 40 and rounds sharp line corners for cartographic display. `viewer.setContourSmoothing(0)` shows the exported contour lines without corner rounding; values from 0 to 160 meters set the corner-rounding radius. This affects drawing only, with displacement bounded to half the radius. Source heights, contour coordinates and 3D geometry remain unchanged. Exported lines may already have bounded simplification. The demo offers a 0-80 m smoothing slider and displays the active contour interval in its footer.
 
+Painting is scheduled once per animation frame. Dense contour layers are built in bounded batches; the previous completed layer follows pan and zoom while its replacement is prepared. Offscreen segments are culled before drawing, and unchanged layers are reused. Subpixel vertex reduction is bounded to 0.25 screen pixels and retains chunk endpoints. Loading and label placement also yield between batches to keep input responsive.
+
 ## Native hosts and verification
 
 The [Rust core](crates/map-core/README.md) can be used by a native host without browser APIs. The canvas adapter is a browser renderer; native applications supply their own rendering and input adapter.

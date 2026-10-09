@@ -14,6 +14,11 @@ vi.mock('../../pkg/nuclear_option_map.js', () => ({ default: core.init, MapViewp
 import { MapViewer, chooseContourInterval, adaptiveContourInterval, createMapViewer } from '../../src/viewer';
 
 function surfaces(failObserve = false) {
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(++frameId, callback); return frameId; });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
+  const ctx = { setTransform: vi.fn(), fillRect: vi.fn(), drawImage: vi.fn() };
   const listeners = new Set<EventListener>();
   const windowListeners = new Set<EventListener>();
   const disconnect = vi.fn();
@@ -29,7 +34,7 @@ function surfaces(failObserve = false) {
   let tabIndex: string | null = null;
   const canvas = {
     style: { touchAction: 'pan-x' }, tabIndex: -1, width: 0, height: 0,
-    getContext: () => ({ setTransform() {}, fillRect() {}, drawImage() {} }),
+    getContext: () => ctx,
     getAttribute: () => tabIndex,
     setAttribute: (_: string, value: string) => { tabIndex = value; },
     removeAttribute: () => { tabIndex = null; },
@@ -37,10 +42,25 @@ function surfaces(failObserve = false) {
     removeEventListener: (_: string, fn: EventListener) => listeners.delete(fn),
     getBoundingClientRect: () => ({ width: 300, height: 200 }),
   } as unknown as HTMLCanvasElement;
-  return { canvas, listeners, windowListeners, disconnect };
+  const flushFrame = () => { const pending = [...frames.values()]; frames.clear(); pending.forEach(callback => callback(0)); };
+  return { canvas, listeners, windowListeners, disconnect, frames, ctx, flushFrame };
 }
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); contour.fail = false; contour.waitInterval = null; contour.resolvers = []; core.scale = 1; });
 describe('viewer construction lifecycle', () => {
+  it('coalesces input bursts into one paint and cancels queued paints on disposal', async () => {
+    const surface = surfaces();
+    const viewer = await createMapViewer(surface.canvas);
+    surface.flushFrame(); surface.ctx.fillRect.mockClear();
+    for (let i = 0; i < 30; i++) viewer.zoomIn();
+    expect(viewer.state.scale).toBeCloseTo(1.5 ** 30);
+    expect(surface.frames.size).toBe(1);
+    expect(surface.ctx.fillRect).not.toHaveBeenCalled();
+    surface.flushFrame();
+    expect(surface.ctx.fillRect).toHaveBeenCalledOnce();
+    viewer.zoomOut(); viewer.destroy(); surface.flushFrame();
+    expect(surface.frames.size).toBe(0);
+    expect(surface.ctx.fillRect).toHaveBeenCalledOnce();
+  });
   it('retains the successful interval across map changes and temporary fallbacks', async () => {
     const surface = surfaces();
     vi.stubGlobal('Image', class { naturalWidth = 10; naturalHeight = 10; onload?: () => void; set src(_value: string) { queueMicrotask(() => this.onload?.()); } });
