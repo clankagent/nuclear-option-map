@@ -6,12 +6,12 @@ type ViewState = Viewer['state'];
 type Mode = 'builtin' | 'raw';
 type Labels = 'edges' | 'cells' | 'none';
 type Variant = { id: string; label: string; image: string; kind: 'builtin' | 'terrain'; tiles?: MapDefinition['tiles']; contours?: MapDefinition['contours'] };
-type Settings = { grid: boolean; labels: Labels; tint: string };
+type Settings = { grid: boolean; labels: Labels; tint: string; contourInterval: 20 | 50 | 100 };
 
 const ORIGINAL = 'original';
 const SETTINGS_KEY = 'nuclear-option-map.settings.v1';
 const VARIANTS_URL = '/maps/variants.json';
-const DEFAULTS: Settings = { grid: true, labels: 'edges', tint: '#6f9d75' };
+const DEFAULTS: Settings = { grid: true, labels: 'edges', tint: '#6f9d75', contourInterval: 100 };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>('map-canvas');
@@ -59,6 +59,7 @@ function loadSettings(): Settings {
       if (typeof raw.grid === 'boolean') out.grid = raw.grid;
       if (isLabels(raw.labels)) out.labels = raw.labels;
       if (isTint(raw.tint)) out.tint = raw.tint.toLowerCase();
+      if (raw.contourInterval === 20 || raw.contourInterval === 50 || raw.contourInterval === 100) out.contourInterval = raw.contourInterval;
     }
   } catch { /* blocked storage or invalid data: use defaults */ }
   return out;
@@ -66,7 +67,7 @@ function loadSettings(): Settings {
 
 function saveSettings() {
   try {
-    const s: Settings = { grid: gridToggle.checked, labels: labelsSelect.value as Labels, tint: tintInput.value };
+    const s: Settings = { grid: gridToggle.checked, labels: labelsSelect.value as Labels, tint: tintInput.value, contourInterval: contourPreference };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   } catch { /* storage unavailable; settings just won't persist */ }
 }
@@ -78,6 +79,7 @@ function showOverlay(title: string, text = '', error = false) {
   overlay.hidden = false;
 }
 const hideOverlay = () => { overlay.hidden = true; };
+let contourPreference: 20 | 50 | 100 = 100;
 
 const variantKind = () => variants.get(current?.id ?? '')?.find(v => v.id === currentVariant)?.kind ?? 'builtin';
 const terrainActive = () => variantKind() === 'terrain';
@@ -98,7 +100,7 @@ function syncControls() {
   contourField.hidden = contourIntervals.length === 0;
   contourSelect.disabled = !hasMap;
   for (const option of contourSelect.options) option.disabled = !contourIntervals.includes(Number(option.value) as 20 | 50 | 100);
-  contourSelect.value = String(viewer?.state.contourInterval ?? 50);
+  contourSelect.value = String(viewer?.state.contourInterval ?? contourPreference);
   zoomInBtn.disabled = zoomOutBtn.disabled = fitBtn.disabled = !hasMap;
 }
 
@@ -186,7 +188,13 @@ function bindControls() {
   contourSelect.addEventListener('change', async () => {
     if (!viewer || loading) return;
     contourSelect.disabled = true;
-    try { await viewer.setContourInterval(Number(contourSelect.value) as 20 | 50 | 100); hideOverlay(); }
+    try {
+      const interval = Number(contourSelect.value) as 20 | 50 | 100;
+      await viewer.setContourInterval(interval);
+      contourPreference = interval;
+      saveSettings();
+      hideOverlay();
+    }
     catch (e) { showOverlay('Could not load contours', message(e), true); }
     finally { syncControls(); }
   });
@@ -247,6 +255,7 @@ async function loadVariants() {
 
 async function init() {
   const saved = loadSettings();
+  contourPreference = saved.contourInterval;
   gridToggle.checked = saved.grid;
   labelsSelect.value = saved.labels;
   tintInput.value = saved.tint;
@@ -258,6 +267,7 @@ async function init() {
       grid: saved.grid,
       gridLabels: saved.labels,
       tint: saved.tint,
+      contourInterval: saved.contourInterval,
       onViewChange,
       onPointerMove,
     });

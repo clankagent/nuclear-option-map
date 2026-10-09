@@ -15,11 +15,18 @@ export interface ViewState {
 export interface MapPointer { x: number; z: number; insideMap: boolean; gridReference: string | null }
 export interface MapViewerOptions {
   map?: MapDefinition; mode?: MapMode; grid?: boolean; gridLabels?: GridLabels; tint?: string;
+  contourInterval?: ContourInterval;
   onViewChange?: (state: ViewState) => void;
   onPointerMove?: (position: MapPointer | null) => void;
 }
 let wasmReady: Promise<unknown> | undefined;
 const constructionToken = Symbol('MapViewer factory');
+/** Preserve a requested interval where available; fallback does not replace that preference. */
+export function chooseContourInterval(available: ContourInterval[], preferred: ContourInterval): ContourInterval {
+  if (![20, 50, 100].includes(preferred)) throw new TypeError('Contour interval must be 20, 50, or 100 meters');
+  if (!available.length) throw new TypeError('No contour intervals available');
+  return available.includes(preferred) ? preferred : available.includes(100) ? 100 : available[0];
+}
 export async function createMapViewer(canvas: HTMLCanvasElement, options: MapViewerOptions = {}): Promise<MapViewer> {
   return MapViewer.create(canvas, options);
 }
@@ -35,6 +42,7 @@ export class MapViewer {
   private contours: ContourRenderer | null = null;
   private contourGeneration = 0;
   private contourPending: ContourRenderer | null = null;
+  private preferredContourInterval: ContourInterval;
   private preparingContours = new Set<ContourRenderer>();
   private mode: MapMode;
   private grid: boolean;
@@ -68,6 +76,8 @@ export class MapViewer {
     this.ctx = ctx;
     this.mode = options.mode ?? 'builtin';
     this.grid = options.grid ?? true;
+    this.preferredContourInterval = options.contourInterval ?? 100;
+    if (![20, 50, 100].includes(this.preferredContourInterval)) throw new TypeError('Contour interval must be 20, 50, or 100 meters');
     this.gridLabels = options.gridLabels ?? 'edges';
     if (!['edges', 'cells', 'none'].includes(this.gridLabels)) throw new TypeError('Unknown grid label mode');
     this.tint = options.tint ?? '#819987';
@@ -141,7 +151,7 @@ export class MapViewer {
     const tint = this.customTint ? this.tint : map.tint ?? '#819987';
     let contours: ContourRenderer | null = null;
     if (map.contours) {
-      contours = new ContourRenderer(map.contours, map.contours.intervals.includes(50) ? 50 : map.contours.intervals[0], map.widthMeters, map.heightMeters, () => { if (!this.disposed) this.draw(); });
+      contours = new ContourRenderer(map.contours, chooseContourInterval(map.contours.intervals, this.preferredContourInterval), map.widthMeters, map.heightMeters, () => { if (!this.disposed) this.draw(); });
       this.preparingContours.add(contours);
       try { await contours.prepare(); } catch (error) { contours.destroy(); throw error; }
       finally { this.preparingContours.delete(contours); }
@@ -179,7 +189,7 @@ export class MapViewer {
     try { await next.prepare(); }
     catch (error) { next.destroy(); if (token === this.contourGeneration) this.contourPending = null; throw error; }
     if (this.disposed || token !== this.contourGeneration) { next.destroy(); return; }
-    this.contours?.destroy(); this.contours = next; this.contourPending = null; this.changed();
+    this.contours?.destroy(); this.contours = next; this.contourPending = null; this.preferredContourInterval = interval; this.changed();
   }
   setMode(value: MapMode) { this.assertAlive(); if (value !== 'builtin' && value !== 'raw') throw new TypeError('Unknown map mode'); if (value === 'builtin' && this.source && !this.tinted) this.tinted = tintRaster(this.source, this.tint); this.mode = value; this.resetPyramid(); this.changed(); }
   setTint(value: string) { this.assertAlive(); if (!validTint(value)) throw new TypeError('Tint must be #RRGGBB'); const tinted = this.source && this.mode === 'builtin' ? tintRaster(this.source, value) : null; disposeRaster(this.tinted); this.tint = value; this.customTint = true; this.tinted = tinted; this.resetPyramid(); this.changed(); }
