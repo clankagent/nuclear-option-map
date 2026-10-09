@@ -72,9 +72,3 @@ if __name__=='__main__':
     args=parser.parse_args()
     if not 1<=args.levels<=5:parser.error('levels must be 1..5')
     run(args)
-
-
-
-
-
-

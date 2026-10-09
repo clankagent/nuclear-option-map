@@ -21,5 +21,3 @@ class TopographyTests(unittest.TestCase):
         self.assertAlmostEqual((int(packed[0,3,0])*256+int(packed[0,3,1]))*.1,258.0)
         self.assertTrue(np.isnan(ground[0,0]));self.assertEqual(ground[0,3],258.04)
 if __name__=='__main__':unittest.main()
-
-

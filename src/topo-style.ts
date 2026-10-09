@@ -138,8 +138,3 @@ export class TopoStyleRenderer {
   get stats() { const stats = this.renderer.stats; return { ...stats, bytes: stats.bytes * 2 + (this.layer ? this.layer.width * this.layer.height * 4 : 0) }; }
   destroy() { this.disposed = true; this.renderer.destroy(); if (this.layer) this.layer.width = this.layer.height = 0; this.layer = undefined; }
 }
-
-
-
-
-
