@@ -22,6 +22,28 @@ blender --background --python tools/import_blender.py -- demo/public/maps/geomet
 
 This importer constructs geometry without game shaders or UV/material fidelity. Blender execution must be verified separately on a Blender-equipped machine; Python extraction tests do not verify its rendering.
 
+For a private overhead scene with serialized materials and UVs, run `tools/render_material_prototype.py` in Blender 4+ with `geometry/scene.json`, the matching `work/extraction/material-report.json`, an ignored output folder, and a manifest map ID. It saves a packed `.blend` plus exact-bounds overview and a 3.84 km close-up when an `airbase_city` object exists. It preserves OBJ UVs and resolves complete transform hierarchies into world placements, excludes LOD1 child meshes when a primary ancestor mesh is present, ignores alpha from opaque URP textures, and omits `Shader Graphs/surf` because its `_Foam` input is an animated foam mask rather than a static base color. Unity DXT5nm normals use alpha for tangent X and green for Y; Blender reconstructs positive Z before normal mapping (`tests/extraction/test_dxt5nm.py` verifies bounded decoding). Terrain uses the actual map macro base color as a baked image; the compiled Shader Graph's splat/detail node blend is unavailable, so the scene does not claim native shader fidelity. All proprietary source textures and resulting scenes stay in ignored `work/`.
+
+Create the material report from the same client data and extraction provenance before building a scene:
+
+```powershell
+uv run python tools/inspect_map_materials.py work/game-data --map-report work/extraction/provenance.json --report work/extraction/material-report.json
+```
+
+Build the packed Blender scene from that report and the geometry scene:
+
+```text
+blender --background --python tools/render_material_prototype.py -- demo/public/maps/geometry/scene.json work/extraction/material-report.json work/material-prototype heartland-46396
+```
+
+Verify the normal decoder through Blender's actual node graph:
+
+```text
+blender --background --factory-startup --python-exit-code 1 --python tools/test_dxt5nm_blender.py -- work/normal-fixture.png
+```
+
+The fixture renders flat and tilted normals through the same node builder used by the scene importer, then asserts the resulting pixels. Ordinary Python decoding tests do not establish correct Blender node wiring.
+
 ## Elevation and terrain scenes
 
 The elevation pipeline selects the Heartland base tile and Ignus base island families. Separate road, decal, city-block and scenery meshes are excluded from this terrain-only scene. It composes every parent transform before rasterizing the surface:
@@ -65,6 +87,32 @@ Add `--land-mask work/extraction/composition-textures/heartland-46396-oceandepth
 Tiles are generated coarse first in bounded regions; no complete 32768-pixel raster is allocated. Contours use native ground triangles, exclude roof heights and preserve clipped tile endpoints. Pavement uses measured ground geometry, while markings and texture-only details remain separate recovery work. Negative elevations are retained only where source geometry exists; missing coverage stays unknown. Raster backdrops and contour vectors remain independent, allowing contour intervals and screen-space line/label styles to change without regenerating the backdrop.
 
 The output `tiles.json` supplies `image`, `tiles` and `contours` for a map definition or demo variant. Add a variant's `id`, `label`, `kind: "terrain"` and finest `widthPixels`/`heightPixels` in `variants.json`. The browser draws minor/index contours and elevation labels independently of raster resolution and offers only generated contour intervals. Use a verified complete backdrop before adding the view to the demo; geometry-export success alone does not establish visual completeness.
+
+### Satellite scene tiles
+
+Render a material-preserving scene into small WebP tiles. Supply your Blender executable with `--blender` when it is outside the default location:
+
+```powershell
+uv run --script tools/render_satellite_tiles.py --blend work/extraction/heartland-scene.blend --output demo/public/maps/tiles/satellite/heartland --world-width 81920 --world-depth 81920 --max-level 3 --tile-budget 85 --blender PATH/TO/blender
+```
+
+This publishes only complete levels in `pyramid.json`. Coarse levels provide immediate coverage. To render finer regions as they are requested, run the persistent local cache against the same scene and output:
+
+```powershell
+uv run --script tools/render_satellite_tiles.py --blend work/extraction/heartland-scene.blend --output demo/public/maps/tiles/satellite/heartland --world-width 81920 --world-depth 81920 --max-level 6 --serve 47833 --blender PATH/TO/blender
+```
+
+The service binds to loopback, advertises lazy levels through `/pyramid.json`, and caches requested tiles. The demo proxies Heartland through `/satellite/heartland`; Ignus uses port 47834 and `/satellite/ignus`. Ignus bounds are 163840 by 81920 m and its coarse levels 0–3 contain 170 tiles. Lazy level 6 provides 2.5 m pixels on both maps without generating a whole fine-resolution image. This is the render sampling scale; the recovered terrain macro texture remains coarser, and its native detail blend is not reconstructed.
+
+Resolve the service descriptor's image and tile templates against the corresponding proxy path when adding a demo variant. Asset URLs include a source/settings version to prevent stale tiles after scene changes. A request canceled before rendering leaves the queue; an active render completes and is cached. The viewer keeps its overview and decoded parents visible during refinement. For a static host, generate all advertised levels beforehand or supply an equivalent tile endpoint; the Vite development proxy is not part of a static build. Use a fresh output directory after changing the scene or render settings.
+
+Queue ownership and disconnect checks run without Blender or game files:
+
+```powershell
+uv run python tests/test_satellite_tile_queue.py
+```
+
+### Smaller 3D derivatives
 
 Create a smaller 3D derivative from those heights with Blender:
 

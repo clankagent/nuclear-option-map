@@ -102,7 +102,7 @@ export class ContourRenderer {
     if (this.disposed || !this.cache.size) return;
     const destination = ctx;
     this.buffer ??= document.createElement('canvas');
-    const ratio = Math.min(transform.dpr ?? 1, 2048 / Math.max(transform.width, transform.height));
+    const ratio = Math.min(transform.dpr ?? 1, 4096 / Math.max(transform.width, transform.height));
     const bw = Math.max(1, Math.ceil(transform.width * ratio)), bh = Math.max(1, Math.ceil(transform.height * ratio));
     if (this.buffer.width !== bw || this.buffer.height !== bh) { this.buffer.width = bw; this.buffer.height = bh; }
     const bufferContext = this.buffer.getContext('2d'); if (!bufferContext) throw new Error('Unable to allocate contour drawing buffer');
