@@ -79,7 +79,7 @@ Each output includes a small overview, lossless WebP tiles with two-pixel edge g
 `build_terrain_tiles.py` generates a separate contour-cartography dataset. It uses a cached spatial triangle index, rasterizes bounded 512-pixel regions, separates ground elevations from roof footprints, and exports contour vectors directly from the transformed ground triangles. Its raster backdrop uses neutral ground, light-blue water, roads and gray buildings. Ground cuts require an independently verified land/water mask for visual fill; missing elevation must remain unknown rather than be interpolated into contour geometry. Check coastlines, platforms, airfields and cities before using a newly generated backdrop.
 
 ```powershell
-uv run --script tools/build_terrain_tiles.py --scene demo/public/maps/geometry/scene.json --manifest demo/public/maps/manifest.json --map heartland-46396 --cache work/terrain/tiles-heartland --output demo/public/maps/terrain/heartland-46396 --max-level 6 --intervals 20,50,100
+uv run --script tools/build_terrain_tiles.py --scene demo/public/maps/geometry/scene.json --manifest demo/public/maps/manifest.json --map heartland-46396 --cache work/terrain/tiles-heartland --output demo/public/maps/terrain/heartland-46396 --max-level 6 --intervals 10,20,50,100
 ```
 
 Add `--land-mask work/extraction/composition-textures/heartland-46396-oceandepthmap.png` for a locally exported, visually verified OceanDepthmap. Its conservative bright-land threshold fills the neutral visual backdrop beneath missing terrain/platform coverage; it never supplies elevations. Add `--material-report work/extraction/material-report.json` to project actual asphalt, runway and road material submesh triangles as neutral pavement. The report must correspond to the same scene/assets. Ignus uses its corresponding map ID and mask, with `--max-level 5`. A single `--preview-tile 6/42/16` produces a private labeled close-up without declaring that fine level complete. `--reuse-contours` is appropriate only when the source geometry and contour settings are unchanged.
@@ -88,28 +88,47 @@ Tiles are generated coarse first in bounded regions; no complete 32768-pixel ras
 
 The output `tiles.json` supplies `image`, `tiles` and `contours` for a map definition or demo variant. Add a variant's `id`, `label`, `kind: "terrain"` and finest `widthPixels`/`heightPixels` in `variants.json`. The browser draws minor/index contours and elevation labels independently of raster resolution and offers only generated contour intervals. Use a verified complete backdrop before adding the view to the demo; geometry-export success alone does not establish visual completeness.
 
-### Satellite scene tiles
+### Terrain material preparation
 
-Render a material-preserving scene into small WebP tiles. Supply your Blender executable with `--blender` when it is outside the default location:
+Prepare material derivatives from a locally extracted material report before rebuilding a satellite scene:
 
 ```powershell
-uv run --script tools/render_satellite_tiles.py --blend work/extraction/heartland-scene.blend --output demo/public/maps/tiles/satellite/heartland --world-width 81920 --world-depth 81920 --max-level 3 --tile-budget 85 --blender PATH/TO/blender
+uv run --with Pillow --with numpy python tools/upscale_terrain_macro.py work/extraction/material-report.json
+uv run --with Pillow python tools/terrain_detail.py work/extraction/material-report.json
 ```
 
-This publishes only complete levels in `pyramid.json`. Coarse levels provide immediate coverage. To render finer regions as they are requested, run the persistent local cache against the same scene and output:
+The macro derivative uses deterministic 2x Lanczos interpolation and bounded edge sharpening. Source splat masks select the referenced detail textures for an approximate, color-neutral high-pass blend. These operations preserve the source geography; they do not reconstruct missing terrain detail or Unity's full Shader Graph. Large macro derivatives use overlapping sampling tiles. Their total memory remains additive, so splitting textures does not authorize GPU rendering. `render_material_prototype.py` consumes these prepared derivatives when rebuilding a scene from its matching geometry and material reports. Keep all source assets and derivatives local.
+
+### Satellite scene tiles
+
+Render a material-preserving scene into small WebP tiles **before browsing**. Static files avoid waiting for scene renders while panning or zooming. Supply your Blender executable with `--blender` when it is outside the default location:
+
+```powershell
+uv run --script tools/render_satellite_tiles.py --blend work/extraction/heartland-scene.blend --output demo/public/maps/tiles/satellite/heartland --world-width 81920 --world-depth 81920 --max-level 5 --tile-budget 1365 --chunk-tiles 4 --derive-parents --device cpu --threads 2 --samples 4 --blender PATH/TO/blender
+```
+
+This renders bounded 2048 px chunks, slices them into 512 px tiles with edge gutters, and releases each intermediate image before continuing. `--derive-parents` renders the finest level once and derives lower levels with bounded neighboring-tile resampling. Only complete levels appear in `pyramid.json`. Heartland level 6 is 2.5 m/px and includes 5461 tiles; Ignus at the same level uses 10922 tiles over its 163840 by 81920 m world. Level 5 provides a smaller 5 m/px dataset (1365 and 2730 tiles respectively). Always use a fresh output folder after changing scene materials or render settings.
+
+Rendering defaults to Cycles CPU with two threads, 16 samples and reduced process priority. The example uses four samples for a quicker bake; inspect representative scenery before choosing a lower sample count. CPU compositing is enforced and GPU denoising is disabled. OS locks permit one active renderer and retain exclusion if its parent process exits. The reserved GPU CLI mode fails closed because texture limits alone cannot establish a verified total scene memory/time bound. Engine, device, sample count and thread settings are recorded in provenance and actual scene settings appear in render receipts; incompatible caches cannot be mixed.
+
+Add `--reuse-uniform-water` in a fresh output folder to reuse a genuine rendered water chunk only after inspecting actual scene data: one unmodified, convex, horizontal quad covering the full chunk and gutters, an opaque constant material, uniform world lighting, directional lights and no potential shadows within conservative reach. Overrides, holdouts, volumes, texture/procedural shader inputs, local lights and uncertain geometry prevent reuse. Cache signatures bind the exact surface, lighting, resolution and render settings. Land and coastal chunks render normally; eligibility and reuse are recorded in receipts.
+
+The optional development cache can render finer regions as requested:
 
 ```powershell
 uv run --script tools/render_satellite_tiles.py --blend work/extraction/heartland-scene.blend --output demo/public/maps/tiles/satellite/heartland --world-width 81920 --world-depth 81920 --max-level 6 --serve 47833 --blender PATH/TO/blender
 ```
 
-The service binds to loopback, advertises lazy levels through `/pyramid.json`, and caches requested tiles. The demo proxies Heartland through `/satellite/heartland`; Ignus uses port 47834 and `/satellite/ignus`. Ignus bounds are 163840 by 81920 m and its coarse levels 0–3 contain 170 tiles. Lazy level 6 provides 2.5 m pixels on both maps without generating a whole fine-resolution image. This is the render sampling scale; the recovered terrain macro texture remains coarser, and its native detail blend is not reconstructed.
+The service binds to loopback and caches requested renders. Cold requests incur Blender render time, so this mode is for development rather than instant map browsing. Serving the complete static pyramid requires no running Blender. Fine render sampling does not recover geographic details missing from the macro texture; the native terrain Shader Graph is not fully reconstructed.
 
-Resolve the service descriptor's image and tile templates against the corresponding proxy path when adding a demo variant. Asset URLs include a source/settings version to prevent stale tiles after scene changes. A request canceled before rendering leaves the queue; an active render completes and is cached. The viewer keeps its overview and decoded parents visible during refinement. For a static host, generate all advertised levels beforehand or supply an equivalent tile endpoint; the Vite development proxy is not part of a static build. Use a fresh output directory after changing the scene or render settings.
+Resolve descriptor image and tile templates against the directory serving the completed pyramid. Asset URLs include a source/settings version to prevent stale tiles after scene changes. The viewer keeps its overview and decoded parents visible during refinement. The demo serves static files directly; it does not proxy browser navigation to Blender. In development-cache mode, a request canceled before rendering leaves the queue, while an active render completes and is cached. Use a fresh output directory after changing the scene or render settings.
 
 Queue ownership and disconnect checks run without Blender or game files:
 
 ```powershell
-uv run python tests/test_satellite_tile_queue.py
+uv run --with Pillow python tests/test_satellite_tile_queue.py
+uv run python tests/test_render_safety.py
+uv run python tests/test_uniform_water.py
 ```
 
 ### Smaller 3D derivatives
@@ -125,3 +144,7 @@ This produces a GLB, a little-endian float32 height grid and JSON with exact sel
 The tool loads root serialized asset/scene files and their resource streams. For stripped MonoBehaviour trees it generates the schemas from the supplied `Managed/` assemblies, using pinned TypeTreeGeneratorAPI 0.0.10. Arbitrary StreamingAssets bundles require separate investigation rather than guessing a Unity version.
 
 UnityPy API reference: [official README](https://github.com/K0lb3/UnityPy/blob/master/README.md). UnityPy 1.23.0 is pinned in the Python project and lockfile.
+
+Contour-only updates can use the same command with `--contours-only`. This reads existing raster levels from `tiles.json` and rewrites only their contour vectors and contour metadata. The 10/20/50/100 m intervals all intersect the original transformed native ground triangles; missing ground creates no synthetic contour geometry. Export simplification is bounded to 0.5 pixel at overview levels 0-2 and 0.1 pixel at close levels 3 and above. Display smoothing rounds corners locally while retaining the measured vectors and contour elevations; its radius is a cartographic display parameter, not a reconstructed terrain height. Set smoothing to zero to inspect exported contours without further corner rounding. Tile endpoints are fixed to maintain joins.
+
+The contour builder intersects the greatest-common-divisor interval once per tile, then selects the corresponding measured elevation paths for each requested interval and computes its index flags. `--reuse-base-contours` resumes an interrupted compatible build by validating and reusing existing base-interval JSON files; use it only with the same geometry cache and export settings. Missing or incomplete JSON is regenerated, and writes replace completed files atomically.

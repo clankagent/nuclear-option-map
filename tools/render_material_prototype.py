@@ -1,8 +1,9 @@
 """Build a private UV/material-preserving Blender scene from exported Unity geometry.
 
 Run inside Blender: blender-runtime.exe --background --python this.py -- scene.json material-report.json outdir MAP_ID
-TerrainShader nodes are approximated with the game's macro basecolor; their full
-Shader Graph blend logic is unavailable in this offline extraction.
+TerrainShader retains the game's macro basecolor. Optional derivatives prepared
+by upscale_terrain_macro.py and terrain_detail.py add deterministic interpolation
+and source-mask microtexture; the full Shader Graph blend remains approximate.
 """
 import json
 import math
@@ -15,6 +16,8 @@ from mathutils import Euler, Matrix, Quaternion, Vector
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from prepare_material_blend_view import prepare_view
 from unity_normal_map import build_dxt5nm_encoded
+from terrain_detail import build_detail, build_upscaled_macro
+from render_safety import guarded_render
 
 
 CONVERSION = Matrix(((1, 0, 0, 0), (0, 0, -1, 0), (0, 1, 0, 0), (0, 0, 0, 1)))
@@ -152,6 +155,16 @@ def make_material(record, image_cache):
         translated.inputs[1].default_value = (float(offset.get("x", 0)), float(offset.get("y", 0)), 0.0)
         links.new(scaled.outputs["Vector"], translated.inputs[0])
         links.new(translated.outputs["Vector"], tex.inputs["Vector"])
+        base_color = tex.outputs["Color"]
+        if terrain_shader:
+            # Interpolation smooths coarse macro pixels; recovered material detail
+            # supplies fine surface variation without painting new geography.
+            tex.interpolation = "Cubic"
+            prepared = build_upscaled_macro(nodes, links, base, translated.outputs["Vector"], load_image)
+            if prepared is not None:
+                base_color = prepared
+            base_color = build_detail(nodes, links, record, translated.outputs["Vector"],
+                                      base_color, load_image)
         colors = {item["property"]: item["value"] for item in record.get("colors", [])}
         color = colors.get("_BaseColor", colors.get("_Color"))
         if color and any(abs(color[c] - 1.0) > 1e-6 for c in ("r", "g", "b")):
@@ -159,10 +172,10 @@ def make_material(record, image_cache):
             multiply.blend_type = "MULTIPLY"
             multiply.inputs[0].default_value = 1.0
             multiply.inputs[1].default_value = (color["r"], color["g"], color["b"], 1.0)
-            links.new(tex.outputs["Color"], multiply.inputs[2])
+            links.new(base_color, multiply.inputs[2])
             links.new(multiply.outputs["Color"], target_color)
         else:
-            links.new(tex.outputs["Color"], target_color)
+            links.new(base_color, target_color)
         floats = {item["property"]: item["value"] for item in record.get("floats", [])}
         transparent = floats.get("_Surface", 0.0) == 1.0 or floats.get("_Mode", 0.0) in (1.0, 2.0, 3.0)
         alpha_clip = floats.get("_AlphaClip", 0.0) > 0.5
@@ -297,7 +310,8 @@ def build(scene_file, report_file, output, map_id):
     obj_collection.objects.link(sea)
 
     scene = bpy.context.scene
-    scene.render.engine = "BLENDER_EEVEE_NEXT"
+    scene.render.engine = "CYCLES"
+    scene.cycles.device = "CPU"
     scene.render.image_settings.file_format = "PNG"
     scene.render.image_settings.color_mode = "RGBA"
     scene.render.resolution_x = 1536
@@ -344,7 +358,7 @@ def build(scene_file, report_file, output, map_id):
         composite = nodes.new("CompositorNodeComposite")
         links.new(render_layer.outputs["Image"], flip.inputs[0])
         links.new(flip.outputs[0], composite.inputs["Image"])
-        bpy.ops.render.render(write_still=True)
+        guarded_render(scene)
         return camera
 
     output = Path(output)
@@ -366,6 +380,7 @@ def build(scene_file, report_file, output, map_id):
                 print(f"PACK WARNING {image.name}: {exc}")
     blend = output / f"{map_id}-material-prototype.blend"
     prepare_view(map_width, map_height)
+    bpy.context.preferences.filepaths.save_version = 0
     bpy.ops.wm.save_as_mainfile(filepath=str(blend.resolve()))
     print(f"IMPORTED {loaded} objects; skipped {skipped}; skipped LOD1 {skipped_lod}; skipped animated water surfaces {skipped_surface}; meshes {len(mesh_cache)}; materials {len(material_cache)}; packed images {len(image_cache)}")
     print(f"BLEND {blend.resolve()}")

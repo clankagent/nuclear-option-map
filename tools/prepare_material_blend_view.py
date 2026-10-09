@@ -4,6 +4,7 @@ import sys
 
 import bpy
 from mathutils import Euler
+from render_safety import configure_scene
 
 
 def prepare_view(width: float, height: float) -> dict[str, float | int | str | None]:
@@ -12,6 +13,9 @@ def prepare_view(width: float, height: float) -> dict[str, float | int | str | N
     clip_end = max(200000.0, 2.0 * extent)
     distance = 1.2 * extent
     scene = bpy.context.scene
+    # Packed terrain scenes can contain gigabytes of decoded textures. Keep
+    # opening the file in solid view and explicit rendering on the CPU.
+    configure_scene(scene)
     scene.unit_settings.system = "METRIC"
     scene.unit_settings.length_unit = "METERS"
     overview = next((obj for obj in bpy.data.objects
@@ -25,6 +29,7 @@ def prepare_view(width: float, height: float) -> dict[str, float | int | str | N
             if area.type != "VIEW_3D":
                 continue
             view = area.spaces.active
+            view.shading.type = "SOLID"
             view.clip_start = 1.0
             view.clip_end = clip_end
             region = view.region_3d

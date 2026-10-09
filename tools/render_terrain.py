@@ -14,6 +14,7 @@ import numpy as np
 from mathutils import Vector
 from import_blender import load
 from terrain_selection import terrain_record
+from render_safety import guarded_render
 
 
 def material(kind, max_height, contour_interval, height_offset=0):
@@ -108,7 +109,7 @@ def run(args):
         obj.data.materials.append(elevation)
     scene.render.filepath = str((args.output / "elevation.exr").resolve())
     print(f"Rendering {len(objects)} base terrain objects, {sum(len(o.data.vertices) for o in objects)} vertices", flush=True)
-    bpy.ops.render.render(write_still=True)
+    guarded_render(scene, samples=1)
     # Render cameras look down Blender -Z; Blender Y=-UnityZ. Flip vertically
     # to store rows north-to-south, columns west-to-east in world X/Z.
     image = bpy.data.images.load(scene.render.filepath, check_existing=False)
@@ -138,7 +139,7 @@ def run(args):
     links.new(render_layer.outputs["Image"], flip.inputs[0])
     links.new(flip.outputs[0], composite.inputs[0])
     scene.render.filepath = str((args.output / "topographic.png").resolve())
-    bpy.ops.render.render(write_still=True)
+    guarded_render(scene, samples=1)
     # Compare rendered float samples with actual transformed terrain intersections.
     # Pixel-center rays provide an independent geometry-based elevation check.
     checks = []

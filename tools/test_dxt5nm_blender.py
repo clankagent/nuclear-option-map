@@ -6,6 +6,7 @@ import bpy
 from mathutils import Euler
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from unity_normal_map import build_dxt5nm_encoded
+from render_safety import guarded_render
 
 
 def fixture_material(name, alpha, green):
@@ -41,15 +42,15 @@ def main(output_path):
     camera_data.ortho_scale = 2.0
     scene = bpy.context.scene
     scene.camera = camera
-    scene.render.engine = "BLENDER_EEVEE_NEXT"
+    scene.render.engine = "CYCLES"
     scene.render.resolution_x, scene.render.resolution_y = 32, 16
     scene.render.resolution_percentage = 100
     scene.render.image_settings.file_format = "PNG"
     scene.render.image_settings.color_mode = "RGB"
     scene.view_settings.view_transform = "Standard"
-    scene.render.filepath = output_path
-    bpy.ops.render.render(write_still=True)
-    proof = bpy.data.images.load(output_path, check_existing=False)
+    scene.render.filepath = str(Path(output_path).resolve())
+    guarded_render(scene)
+    proof = bpy.data.images.load(scene.render.filepath, check_existing=False)
     proof.colorspace_settings.name = "Non-Color"
 
     def pixel(x, y):
