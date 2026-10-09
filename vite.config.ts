@@ -1,12 +1,8 @@
 import { defineConfig } from 'vite-plus';
 import { cpSync, existsSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
-
-/** Versioned raster URLs are replaced when their generated dataset changes. */
-export function mapRasterCacheControl(rawUrl: string): string | undefined {
-  const url = new URL(rawUrl, 'http://localhost');
-  if (/^\/maps\/(?:tiles|terrain)\/[^?#]+\.(?:webp|png)$/.test(url.pathname) && /^[a-f0-9]{8,64}$/i.test(url.searchParams.get('v') ?? '')) return 'public, max-age=31536000, immutable';
-}
+import { createMapStaticMiddleware } from './tools/map-static-middleware';
+export { mapRasterCacheControl } from './tools/map-static-middleware';
 
 export default defineConfig({
   root: 'demo',
@@ -22,13 +18,9 @@ export default defineConfig({
   },
   build: { outDir: '../dist/demo', emptyOutDir: true, copyPublicDir: false },
   plugins: [{
-    name: 'cache-versioned-map-rasters',
+    name: 'serve-generated-map-assets',
     configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        const cacheControl = mapRasterCacheControl(req.url ?? '/');
-        if (cacheControl) res.setHeader('Cache-Control', cacheControl);
-        next();
-      });
+      server.middlewares.use(createMapStaticMiddleware(resolve(server.config.publicDir, 'maps')));
     },
   }, {
     name: 'copy-demo-map-views',
