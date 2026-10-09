@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["Pillow>=11,<13"]
+# dependencies = ["Pillow>=11,<13", "numpy>=2,<3"]
 # ///
 """Render private Blender scenes into bounded, north-up satellite pyramids.
 
@@ -17,7 +17,10 @@ priority, without GPU denoising. A project-wide lock permits one renderer.
 The reserved --device gpu option is unavailable without verified total scene
 memory/time bounds. Its preflight texture/edge caps alone never authorize GPU
 execution. Enhanced scenes use CPU. --chunk-tiles 8 bounds CPU buffers to 4100px
-with gutters. Uniform-water reuse requires actual geometry/material/light proof.
+with gutters. --cpu-denoise applies explicit CPU OIDN after guarded rendering,
+using16 samples by default and runtime-queried aligned context before slicing.
+Denoised8-tile chunks exceed the padded4100px bound and are rejected.
+Uniform-water reuse requires actual geometry/material/light proof.
 Use separate output folders when the scene changes. No game assets are bundled.
 """
 
@@ -41,6 +44,48 @@ from render_safety import (CPU_MAX_EDGE, GPU_MAX_EDGE, configure_scene,
 from uniform_water import eligible as uniform_water_eligible, copy_verified_chunk
 
 TILE, GUTTER = 512, 2
+
+
+def denoise_geometry(size, profile):
+    """Aligned context preserves original center, scale and tile gutters."""
+    if profile.get("device") != "CPU" or profile.get("threads") != 2:
+        raise ValueError("CPU denoise requires verified CPU/two-thread profile")
+    alignment, overlap = profile["tileAlignment"], profile["tileOverlap"]
+    if alignment < 1 or overlap < 1 or (size - GUTTER * 2) % alignment:
+        raise ValueError("Denoise interior must match filter alignment")
+    padding = math.ceil((overlap + GUTTER) / alignment) * alignment - GUTTER
+    edge = size + padding * 2
+    if edge > CPU_MAX_EDGE:
+        raise ValueError(f"Padded CPU denoise edge {edge} exceeds {CPU_MAX_EDGE}; reduce chunk size")
+    return {"renderEdge": edge, "padding": padding,
+            "crop": [padding, padding, padding + size, padding + size]}
+
+
+def denoise_render_file(path, size, settings):
+    """Worker owns render_slot while this bounded sequential CPU child runs."""
+    geometry = denoise_geometry(size, settings["profile"])
+    filtered = Path(path).with_name(Path(path).stem + "-denoised.png")
+    command = [settings["python"], str(Path(__file__).with_name("cpu_denoise.py")),
+               str(path), str(filtered), "--library-directory", settings["libraryDirectory"],
+               "--max-edge", str(CPU_MAX_EDGE), "--render-slot-owned",
+               "--owner-pid", str(os.getpid()), "--crop",
+               *(str(v) for v in geometry["crop"])]
+    try:
+        completed = subprocess.run(command, check=True, capture_output=True, text=True,
+                                   timeout=240, creationflags=(subprocess.CREATE_NO_WINDOW |
+                                   subprocess.BELOW_NORMAL_PRIORITY_CLASS) if os.name == "nt" else 0)
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(f"CPU denoise child failed: {exc.stderr[-4000:]}") from exc
+    proof = json.loads(completed.stdout)
+    for key, value in settings["profile"].items():
+        if proof.get(key) != value:
+            raise ValueError(f"CPU denoiser runtime differs from provenance: {key}")
+    if proof["width"] != geometry["renderEdge"] or proof["height"] != geometry["renderEdge"]:
+        raise ValueError("Rendered denoise input dimensions differ from bounded job")
+    if proof["outputWidth"] != size or proof["outputHeight"] != size:
+        raise ValueError("Denoise crop changed logical chunk dimensions")
+    filtered.replace(path)
+    return dict(proof, padding=geometry["padding"], renderEdge=geometry["renderEdge"])
 
 
 def chunk_renders(level, width, depth, scratch, output, chunk_tiles=4):
@@ -180,7 +225,9 @@ def _render_blender_job(job_path):
     profile = job.get("renderProfile", render_profile())
     configure_scene(scene, device=profile["device"], samples=profile["samples"],
                     threads=profile["threads"], images=bpy.data.images,
-                    render_edge=max(tile["size"] for tile in job["renders"]))
+                    render_edge=max(denoise_geometry(tile["size"], job["cpuDenoise"]["profile"])["renderEdge"]
+                                    if job.get("cpuDenoise") else tile["size"]
+                                    for tile in job["renders"]))
     original = {o: o.hide_render for o in scene.objects}
     bounds = []
     top = 0
@@ -253,7 +300,8 @@ def _render_blender_job(job_path):
     for tile in job["renders"]:
         start = time.perf_counter()
         cx, cy = tile["x"], -tile["z"]
-        half = tile["metersPerPixel"] * tile["size"] / 2
+        render_edge = denoise_geometry(tile["size"], job["cpuDenoise"]["profile"])["renderEdge"] if job.get("cpuDenoise") else tile["size"]
+        half = tile["metersPerPixel"] * render_edge / 2
         margin = half + shadow
         candidates = set(global_objects)
         for ix in range(
@@ -279,7 +327,7 @@ def _render_blender_job(job_path):
                 visible_geometry.append(obj)
         camera.location = (cx, cy, top + 8000)
         camera_data.ortho_scale = half * 2
-        scene.render.resolution_x = scene.render.resolution_y = tile["size"]
+        scene.render.resolution_x = scene.render.resolution_y = render_edge
         path = Path(tile["path"])
         path.parent.mkdir(parents=True, exist_ok=True)
         scene.render.filepath = str(path.resolve())
@@ -289,7 +337,7 @@ def _render_blender_job(job_path):
         if job.get("reuseUniformWater"):
             try:
                 proof = _water_snapshot(scene, visible_geometry, (cx-half, cy-half, cx+half, cy+half), shadow, top)
-                signature = json.dumps([profile, tile["size"], scene.cycles.seed, scene.frame_current, proof["surfaceSignature"]], sort_keys=True)
+                signature = json.dumps([profile, render_edge, scene.cycles.seed, scene.frame_current, proof["surfaceSignature"]], sort_keys=True)
                 reused = copy_verified_chunk(water_cache, path, proof, cached_signature=water_signature, render_signature=signature)
             except (AttributeError, KeyError, TypeError, ValueError):
                 proof = None  # Unknown/unsupported data always renders normally.
@@ -299,8 +347,10 @@ def _render_blender_job(job_path):
                 import shutil
                 shutil.copyfile(path, water_cache)
                 water_signature = signature
+        denoise_proof = denoise_render_file(path, tile["size"], job["cpuDenoise"]) if job.get("cpuDenoise") else None
         result = {
             **tile,
+            "cpuDenoise": denoise_proof,
             "seconds": time.perf_counter() - start,
             "visibleObjects": visible,
             "shadowMarginMeters": shadow,
@@ -440,6 +490,7 @@ def main():
     p.add_argument("--max-level", type=int, default=0)
     p.add_argument("--device", choices=["cpu", "gpu"], default="cpu",
                    help="CPU default; reserved GPU mode is unavailable without verified total scene/time bounds")
+    p.add_argument("--cpu-denoise", dest="cpu_denoise_enabled", action="store_true", help="Explicit CPU OIDN with aligned overlap; static/benchmark only")
     p.add_argument("--samples", type=int, default=16)
     p.add_argument("--threads", type=int, default=2)
     p.add_argument("--tile-budget", type=int, default=64)
@@ -467,10 +518,27 @@ def main():
         args.render_profile = render_profile(args.device, args.samples, args.threads)
     except ValueError as exc:
         p.error(str(exc))
+    args.cpu_denoise = None
+    if args.cpu_denoise_enabled:
+        if args.serve:
+            p.error("CPU denoise is for precomputed static/benchmark imagery")
+        from cpu_denoise import denoise_srgb
+        directory = args.blender.parent / "blender.shared"
+        try:
+            profile = denoise_srgb(None, None, directory)
+        except (OSError, ValueError, RuntimeError) as exc:
+            p.error(f"CPU denoise preflight failed: {exc}")
+        args.cpu_denoise = {"profile": profile, "python": sys.executable,
+                            "libraryDirectory": str(directory.resolve())}
     max_edge = GPU_MAX_EDGE if args.device == "gpu" else CPU_MAX_EDGE
     requested_edge = (args.benchmark_size if args.benchmark else
                       TILE + GUTTER * 2 if args.serve else
                       min(args.chunk_tiles, 2 ** args.max_level) * TILE + GUTTER * 2)
+    if args.cpu_denoise:
+        try:
+            requested_edge = denoise_geometry(requested_edge, args.cpu_denoise["profile"])["renderEdge"]
+        except ValueError as exc:
+            p.error(str(exc))
     if requested_edge > max_edge:
         p.error(f"{args.device.upper()} render edge {requested_edge} exceeds safety limit {max_edge}; reduce --chunk-tiles/--benchmark-size")
     print(f"Resource-safe renderer: CYCLES {args.device.upper()}, {args.threads} CPU threads, {args.samples} samples; GPU denoising off", flush=True)
@@ -506,11 +574,13 @@ def main():
         "shadowMarginMeters": args.shadow_margin_meters,
         "renderProfile": args.render_profile,
         "reuseUniformWater": args.reuse_uniform_water,
+        "cpuDenoise": args.cpu_denoise,
     }
     source = scratch / "source.json"
     if source.exists():
         previous = json.loads(source.read_text())
         previous.setdefault("reuseUniformWater", False)
+        previous.setdefault("cpuDenoise", None)
         if previous != provenance:
             p.error("Output belongs to different scene/settings; choose a fresh output directory")
     atomic_json(source, provenance)
@@ -554,6 +624,7 @@ def main():
                 "streamParentPid": os.getpid() if consume else None,
                 "renderProfile": args.render_profile,
                 "reuseUniformWater": args.reuse_uniform_water,
+                "cpuDenoise": args.cpu_denoise,
             },
         )
         with schedule_slot(), (scratch / f"{label}.log").open("w", encoding="utf-8") as log:
@@ -848,6 +919,7 @@ def serve_tiles(args, levels, scratch, env):
                         "shadowMarginMeters": args.shadow_margin_meters,
                         "renderProfile": args.render_profile,
                         "reuseUniformWater": args.reuse_uniform_water,
+                        "cpuDenoise": args.cpu_denoise,
                         "receipt": str(receipt.resolve()),
                         "renders": [
                             {

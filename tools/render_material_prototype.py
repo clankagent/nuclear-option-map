@@ -1,9 +1,8 @@
 """Build a private UV/material-preserving Blender scene from exported Unity geometry.
 
 Run inside Blender: blender-runtime.exe --background --python this.py -- scene.json material-report.json outdir MAP_ID
-TerrainShader retains the game's macro basecolor. Optional derivatives prepared
-by upscale_terrain_macro.py and terrain_detail.py add deterministic interpolation
-and source-mask microtexture; the full Shader Graph blend remains approximate.
+TerrainShader combines referenced macro and detail textures, masks and normals
+on a lit surface so terrain slopes receive sunlight and cast shadows.
 """
 import json
 import math
@@ -16,7 +15,7 @@ from mathutils import Euler, Matrix, Quaternion, Vector
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from prepare_material_blend_view import prepare_view
 from unity_normal_map import build_dxt5nm_encoded
-from terrain_detail import build_detail, build_upscaled_macro
+from terrain_detail import build_surface, texture_color_space
 from render_safety import guarded_render
 
 
@@ -121,14 +120,13 @@ def make_material(record, image_cache):
     nodes.clear()
     output = nodes.new("ShaderNodeOutputMaterial")
     terrain_shader = record.get("shaderName") == "Shader Graphs/TerrainShader"
+    surface = nodes.new("ShaderNodeBsdfPrincipled")
+    links.new(surface.outputs["BSDF"], output.inputs["Surface"])
+    target_color = surface.inputs["Base Color"]
     if terrain_shader:
-        surface = nodes.new("ShaderNodeEmission")
-        links.new(surface.outputs["Emission"], output.inputs["Surface"])
-        target_color = surface.inputs["Color"]
-    else:
-        surface = nodes.new("ShaderNodeBsdfPrincipled")
-        links.new(surface.outputs["BSDF"], output.inputs["Surface"])
-        target_color = surface.inputs["Base Color"]
+        surface.inputs["Roughness"].default_value = 1.0
+        surface.inputs["Metallic"].default_value = 0.0
+        surface.inputs["Specular IOR Level"].default_value = 0.0
     textures = record.get("textures", [])
     preferred = ("_macro_basecolor", "_BaseMap", "_BaseColor", "_Basecolor", "_MainTex", "_ColorMap")
     base = next((t for name in preferred for t in textures if t.get("property") == name and t.get("export")), None)
@@ -136,7 +134,7 @@ def make_material(record, image_cache):
         base = next((t for t in textures if t.get("export") and not re.search(r"normal|bump|metal|rough|ao|splat|mask|depth", t.get("textureName", ""), re.I)), None)
     if base:
         path = base["export"]
-        image = image_cache.setdefault(path, load_image(path, "sRGB"))
+        image = image_cache.setdefault(path, load_image(path, texture_color_space(base)))
         tex = nodes.new("ShaderNodeTexImage")
         tex.image = image
         tex.label = f"{base['property']} · {base.get('textureName')}"
@@ -157,14 +155,11 @@ def make_material(record, image_cache):
         links.new(translated.outputs["Vector"], tex.inputs["Vector"])
         base_color = tex.outputs["Color"]
         if terrain_shader:
-            # Interpolation smooths coarse macro pixels; recovered material detail
-            # supplies fine surface variation without painting new geography.
-            tex.interpolation = "Cubic"
-            prepared = build_upscaled_macro(nodes, links, base, translated.outputs["Vector"], load_image)
-            if prepared is not None:
-                base_color = prepared
-            base_color = build_detail(nodes, links, record, translated.outputs["Vector"],
-                                      base_color, load_image)
+            tex.interpolation = "Linear"
+            base_color, terrain_normal = build_surface(nodes, links, record, uv.outputs["UV"],
+                                                       base_color, load_image)
+            if terrain_normal is not None:
+                links.new(terrain_normal, surface.inputs["Normal"])
         colors = {item["property"]: item["value"] for item in record.get("colors", [])}
         color = colors.get("_BaseColor", colors.get("_Color"))
         if color and any(abs(color[c] - 1.0) > 1e-6 for c in ("r", "g", "b")):
@@ -186,7 +181,7 @@ def make_material(record, image_cache):
     normal = next((t for t in textures if t.get("export") and
                    (t.get("property") in ("_BumpMap", "_Normal", "_NormalMap") or
                     re.search(r"_n(?:ormal)?$", t.get("textureName", ""), re.I))), None)
-    # Terrain macro color already includes baked relief; don't double-shade it.
+    # Terrain normals are layered by build_surface above.
     if normal and record.get("shaderName") != "Shader Graphs/TerrainShader":
         path = normal["export"]
         image = image_cache.setdefault(path, load_image(path, "Non-Color"))

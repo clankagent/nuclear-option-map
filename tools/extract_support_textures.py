@@ -8,6 +8,7 @@ import shutil
 from PIL import Image
 
 from map_assets import load_assets, provenance, resolve, script_name, monobehaviour_header
+from texture_metadata import sampling_metadata
 
 
 def sha256(path):
@@ -128,6 +129,7 @@ def extract(source, map_report, manifest, output, view_output, selected_ids=None
                 shutil.copyfile(out_path, view_path)
 
         exported.append({
+            **sampling_metadata(decoded),
             "mapId": map_id, "mapName": row.get("name") or game_object_name or map_id,
             "gameObjectName": game_object_name,
             "settings": provenance(settings_obj), "mapSizeMeters": [width_m, height_m],

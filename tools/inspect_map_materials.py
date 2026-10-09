@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from map_assets import load_assets, provenance, resolve, monobehaviour_header, script_name, safe_id
+from texture_metadata import sampling_metadata
 
 
 def _name(obj):
@@ -64,6 +65,7 @@ def inspect(source, report_path, output_dir):
                     parsed = tex.parse_as_object()
                     entry.update({"pixels": [int(parsed.m_Width), int(parsed.m_Height)],
                                   "format": str(parsed.m_TextureFormat), "mipCount": int(parsed.m_MipCount)})
+                    entry.update(sampling_metadata(parsed))
                     out = output_dir / f"{safe_id(parsed.m_Name or 'texture', tex.path_id)}.png"
                     if not out.exists():
                         parsed.image.save(out, format="PNG", optimize=False, compress_level=6)

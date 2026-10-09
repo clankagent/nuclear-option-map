@@ -1,4 +1,7 @@
-"""Patch only terrain color nodes in an existing extracted Blender scene.
+"""Legacy color-only patch for an existing extracted Blender scene.
+
+Uses referenced RGB detail with original mesh UV0. It does not reconstruct
+terrain lighting or layered normals; use relight_terrain_scene.py for those.
 
 Render a matched before/after close-up before saving in place. Run in Blender:
 --background SCENE --python tools/apply_terrain_detail.py -- REPORT OUTPUT_PREFIX
@@ -45,20 +48,21 @@ def patch(report_file, prefix):
             if material.name != record["name"] or not material.use_nodes:
                 continue
             nodes, links = material.node_tree.nodes, material.node_tree.links
-            if any(n.label == "Approximate source detail; macro geography retained" for n in nodes):
+            if any(n.label.startswith("Source terrain") or
+                   n.label == "Approximate source detail; macro geography retained" for n in nodes):
                 raise ValueError("Terrain detail has already been applied")
             tex = next((n for n in nodes if n.type == "TEX_IMAGE" and n.label.startswith("_macro_basecolor")), None)
             if tex is None or not tex.inputs["Vector"].is_linked:
                 raise ValueError("Missing terrain macro texture/UV wiring")
             consumers = [(link.to_socket) for link in list(links) if link.from_socket == tex.outputs["Color"]]
-            uv = tex.inputs["Vector"].links[0].from_socket
-            color = build_detail(nodes, links, record, uv, tex.outputs["Color"], load_image)
+            uv = nodes.new("ShaderNodeTexCoord")
+            color = build_detail(nodes, links, record, uv.outputs["UV"], tex.outputs["Color"], load_image)
             if color == tex.outputs["Color"]:
-                raise ValueError("No prepared terrain detail files")
-            tex.interpolation = "Cubic"
+                raise ValueError("Missing referenced terrain detail textures")
+            tex.interpolation = "Linear"
             for consumer in consumers:
                 links.new(color, consumer)
-            material["terrain_detail_approximation"] = "Source splat masks + highpass detail luminance; 1000m period; strength 0.20"
+            material["terrain_detail_approximation"] = "Source RGB Overlay; mesh UV0; 100/410/1800 repeats; red masks and fields/lush alpha; procedural UV breakup omitted; color-only patch"
             patched.append(material.name)
     if not patched:
         raise ValueError("No terrain materials matched")
