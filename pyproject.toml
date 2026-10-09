@@ -1,0 +1,8 @@
+[project]
+name = "nuclear-option-map-extraction"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "typetreegeneratorapi==0.0.10",
+    "unitypy==1.23.0",
+]
