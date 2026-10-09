@@ -13,7 +13,7 @@ it('masks water and unknown cells and leaves packed data unchanged', () => {
 it('uses darker lowlands, a restrained elevation gradient and neutral plain mode', () => {
   const low = topographyPalette(descriptor, { style: 'lowlands-dark', strength: 1 });
   expect(low[100 * 4]).toBeLessThan(low[10000 * 4]);
-  const elevation = topographyPalette(descriptor, { style: 'elevation-colours', strength: 1 });
+  const elevation = topographyPalette(descriptor, { style: 'elevation-colors', strength: 1 });
   expect(elevation[100 * 4 + 1]).toBeGreaterThan(elevation[100 * 4]);
   expect(elevation[10000 * 4]).toBeGreaterThan(245);
   expect(topographyPalette(descriptor, { style: 'plain', strength: 1 })[3]).toBe(0);
@@ -26,7 +26,7 @@ it('strength only controls opacity and relief preserves a neutral flat plane', (
   expect(out[0]).toBe(246); expect(out[4]).toBeLessThan(out[0]); expect(out[8]).toBeGreaterThan(out[0]);
 });
 
-it('reuses cached packed tiles across style and strength changes and bounds recolouring per frame', async () => {
+it('reuses cached packed tiles across style and strength changes and bounds recoloring per frame', async () => {
   const { TopoStyleRenderer } = await import('../../src/topo-style');
   const { vi } = await import('vite-plus/test');
   const put = vi.fn();
@@ -43,10 +43,10 @@ it('reuses cached packed tiles across style and strength changes and bounds reco
   expect(loader).toHaveBeenCalledTimes(4); expect(renderer.stats.bytes).toBe(4 * 256 * 256 * 8);
   const ctx = { save: vi.fn(), restore: vi.fn(), drawImage: vi.fn(), globalAlpha: 1 } as unknown as CanvasRenderingContext2D;
   await new Promise(resolve => setTimeout(resolve, 200));
-  put.mockClear(); renderer.setStyle('elevation-colours', .2, true); renderer.draw(ctx, view);
+  put.mockClear(); renderer.setStyle('elevation-colors', .2, true); renderer.draw(ctx, view);
   expect(put).toHaveBeenCalledTimes(2); renderer.draw(ctx, view);
   expect(put).toHaveBeenCalledTimes(4);
-  put.mockClear(); renderer.setStyle('elevation-colours', .8, true); renderer.draw(ctx, view); expect(put).not.toHaveBeenCalled();
+  put.mockClear(); renderer.setStyle('elevation-colors', .8, true); renderer.draw(ctx, view); expect(put).not.toHaveBeenCalled();
   expect(renderer.stats.bytes).toBe(4 * 256 * 256 * 8 + 1024 * 256 * 4);
   renderer.update(view); expect(loader).toHaveBeenCalledTimes(4); renderer.destroy(); vi.unstubAllGlobals();
 });
@@ -54,7 +54,7 @@ it('reuses cached packed tiles across style and strength changes and bounds reco
 
 
 
-it('disposes a decoded source arriving after destruction before readback or colour work', async () => {
+it('disposes a decoded source arriving after destruction before readback or color work', async () => {
   const { TopoStyleRenderer } = await import('../../src/topo-style');
   const { vi } = await import('vite-plus/test');
   const createElement = vi.fn(() => { throw new Error('Late decode must not allocate a canvas'); });

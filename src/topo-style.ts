@@ -3,7 +3,7 @@ import { PyramidRenderer, type RasterView, type TileImage, type TileLoader } fro
 
 /** RG stores an unsigned big-endian height code; B stores NW illumination; A masks water/unknown. */
 export interface TopographyPyramid { tiles: TilePyramid; minHeightMeters: number; heightStepMeters: number; maxHeightMeters: number }
-export type TopoStyle = 'plain' | 'lowlands-dark' | 'elevation-colours' | 'hillshade';
+export type TopoStyle = 'plain' | 'lowlands-dark' | 'elevation-colors' | 'hillshade';
 export interface TopoStyleOptions { style: TopoStyle; strength: number; hillshade?: boolean }
 const clamp = (n: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, n));
 export function decodeHeight(red: number, green: number, descriptor: TopographyPyramid) {
@@ -16,7 +16,7 @@ export function topographyPalette(descriptor: TopographyPyramid, options: TopoSt
   for (let code = 0; code < 65536; code++) {
     const t = clamp((descriptor.minHeightMeters + code * descriptor.heightStepMeters) / Math.max(1, descriptor.maxHeightMeters));
     let red = 246, green = 244, blue = 233;
-    if (options.style === 'elevation-colours') {
+    if (options.style === 'elevation-colors') {
       const part = t < .55 ? 0 : 1;
       const f = part === 0 ? t / .55 : (t - .55) / .45;
       red = stops[part][0] + (stops[part + 1][0] - stops[part][0]) * f;
@@ -111,7 +111,7 @@ export class TopoStyleRenderer {
     return { image, width: image.width, height: image.height, dispose: () => image.close() };
   }
   setStyle(style: TopoStyle, strength: number, hillshade = false) {
-    if (!['plain', 'lowlands-dark', 'elevation-colours', 'hillshade'].includes(style) || !Number.isFinite(strength)) throw new TypeError('Invalid topography style');
+    if (!['plain', 'lowlands-dark', 'elevation-colors', 'hillshade'].includes(style) || !Number.isFinite(strength)) throw new TypeError('Invalid topography style');
     const next = { style, strength: clamp(strength), hillshade };
     if (next.style === this.options.style && next.strength === this.options.strength && !!next.hillshade === !!this.options.hillshade) return;
     const paletteChanged = next.style !== this.options.style || !!next.hillshade !== !!this.options.hillshade;

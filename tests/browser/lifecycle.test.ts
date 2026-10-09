@@ -56,9 +56,9 @@ describe('viewer construction lifecycle', () => {
     expect(viewer.state).toMatchObject({ topoStyle: 'lowlands-dark', topoStrength: .3, topoHillshade: true });
     expect(() => viewer.setTopoStyle('plain', 1.1)).toThrow('strength');
     expect(viewer.state.topoStrength).toBe(.3);
-    viewer.setTopoStyle('elevation-colours', .6, false);
+    viewer.setTopoStyle('elevation-colors', .6, false);
     await viewer.setMap({ ...map, id: 'b' });
-    expect(viewer.state).toMatchObject({ topoStyle: 'elevation-colours', topoStrength: .6, topoHillshade: false });
+    expect(viewer.state).toMatchObject({ topoStyle: 'elevation-colors', topoStrength: .6, topoHillshade: false });
     viewer.destroy();
   });
   it('coalesces input bursts into one paint and cancels queued paints on disposal', async () => {

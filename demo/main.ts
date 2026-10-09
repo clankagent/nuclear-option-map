@@ -9,9 +9,9 @@ type Variant = { id: string; label: string; image: string; kind: 'builtin' | 'te
 type Settings = { grid: boolean; labels: Labels; tint: string; contourInterval: ContourPreference; contourSmoothingMeters: number; topoStyle: TopoStyle; topoStrength: number; topoHillshade: boolean };
 
 const ORIGINAL = 'original';
-const SETTINGS_KEY = 'nuclear-option-map.settings.v2';
+const SETTINGS_KEY = 'nuclear-option-map.settings.v3';
 const VARIANTS_URL = '/maps/variants.json';
-const DEFAULTS: Settings = { grid: true, labels: 'edges', tint: '#6f9d75', contourInterval: 'auto', contourSmoothingMeters: 40, topoStyle: 'plain', topoStrength: .45, topoHillshade: false };
+const DEFAULTS: Settings = { grid: true, labels: 'edges', tint: '#6f9d75', contourInterval: 'auto', contourSmoothingMeters: 40, topoStyle: 'elevation-colors', topoStrength: .45, topoHillshade: true };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>('map-canvas');
@@ -66,16 +66,19 @@ function loadSettings(): Settings {
   const out = { ...DEFAULTS };
   try {
     const currentSettings = localStorage.getItem(SETTINGS_KEY);
-    const raw = JSON.parse(currentSettings ?? localStorage.getItem('nuclear-option-map.settings.v1') ?? 'null') as Partial<Record<keyof Settings, unknown>> | null;
+    const previousSettings = localStorage.getItem('nuclear-option-map.settings.v2');
+    const raw = JSON.parse(currentSettings ?? previousSettings ?? localStorage.getItem('nuclear-option-map.settings.v1') ?? 'null') as Partial<Record<keyof Settings, unknown>> | null;
     if (raw && typeof raw === 'object') {
       if (typeof raw.grid === 'boolean') out.grid = raw.grid;
       if (isLabels(raw.labels)) out.labels = raw.labels;
       if (isTint(raw.tint)) out.tint = raw.tint.toLowerCase();
-      if (raw.contourInterval === 'auto' || raw.contourInterval === 10 || raw.contourInterval === 20 || raw.contourInterval === 50 || (currentSettings && raw.contourInterval === 100)) out.contourInterval = raw.contourInterval;
+      if (raw.contourInterval === 'auto' || raw.contourInterval === 10 || raw.contourInterval === 20 || raw.contourInterval === 50 || ((currentSettings || previousSettings) && raw.contourInterval === 100)) out.contourInterval = raw.contourInterval;
       if (typeof raw.contourSmoothingMeters === 'number' && Number.isFinite(raw.contourSmoothingMeters) && raw.contourSmoothingMeters >= 0 && raw.contourSmoothingMeters <= 80) out.contourSmoothingMeters = raw.contourSmoothingMeters;
-      if (raw.topoStyle === 'plain' || raw.topoStyle === 'lowlands-dark' || raw.topoStyle === 'elevation-colours') out.topoStyle = raw.topoStyle;
+      if (raw.topoStyle === 'elevation-colours') raw.topoStyle = 'elevation-colors';
+      // Existing v2 preferences adopt the new requested default; v3 keeps subsequent choices.
+      if (currentSettings && (raw.topoStyle === 'plain' || raw.topoStyle === 'lowlands-dark' || raw.topoStyle === 'elevation-colors')) out.topoStyle = raw.topoStyle;
       if (typeof raw.topoStrength === 'number' && Number.isFinite(raw.topoStrength) && raw.topoStrength >= 0 && raw.topoStrength <= 1) out.topoStrength = raw.topoStrength;
-      if (typeof raw.topoHillshade === 'boolean') out.topoHillshade = raw.topoHillshade;
+      if (currentSettings && typeof raw.topoHillshade === 'boolean') out.topoHillshade = raw.topoHillshade;
     }
   } catch { /* blocked storage or invalid data: use defaults */ }
   return out;

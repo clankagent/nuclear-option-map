@@ -98,7 +98,7 @@ export class MapViewer {
     this.ctx = ctx;
     this.mode = options.mode ?? 'builtin';
     this.grid = options.grid ?? true;
-    this.topoStyle = options.topoStyle ?? 'plain'; this.topoStrength = options.topoStrength ?? .45; this.topoHillshade = options.topoHillshade ?? false;
+    this.topoStyle = options.topoStyle ?? 'elevation-colors'; this.topoStrength = options.topoStrength ?? .45; this.topoHillshade = options.topoHillshade ?? true;
     this.validateTopoStyle(this.topoStyle, this.topoStrength);
     this.preferredContourInterval = options.contourInterval ?? 'auto';
     if (this.preferredContourInterval !== 'auto' && ![10, 20, 50, 100].includes(this.preferredContourInterval)) throw new TypeError('Contour interval must be auto, 10, 20, 50, or 100 meters');
@@ -260,7 +260,7 @@ export class MapViewer {
   }
   setMode(value: MapMode) { this.assertAlive(); if (value !== 'builtin' && value !== 'raw') throw new TypeError('Unknown map mode'); if (value === this.mode) return; if (value === 'builtin' && this.source && !this.tinted) this.tinted = tintRaster(this.source, this.tint); this.mode = value; this.resetPyramid(); this.changed(); }
   private validateTopoStyle(style: TopoStyle, strength: number) {
-    if (!['plain', 'lowlands-dark', 'elevation-colours', 'hillshade'].includes(style) || !Number.isFinite(strength) || strength < 0 || strength > 1) throw new TypeError('Topography style and strength (0–1) are required');
+    if (!['plain', 'lowlands-dark', 'elevation-colors', 'hillshade'].includes(style) || !Number.isFinite(strength) || strength < 0 || strength > 1) throw new TypeError('Topography style and strength (0–1) are required');
   }
   setTopoStyle(style: TopoStyle, strength = this.topoStrength, hillshade = this.topoHillshade) {
     this.assertAlive(); this.validateTopoStyle(style, strength);

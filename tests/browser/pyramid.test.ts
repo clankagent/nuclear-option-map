@@ -112,7 +112,7 @@ it('clips a settled ancestor to visible holes without repainting the completed q
   expect(f.ctx.drawImage).toHaveBeenCalledTimes(2);
   f.renderer.destroy();
 });
-it('holds cancelled decoder slots until promises settle and disposes their late images', async () => {
+it('holds canceled decoder slots until promises settle and disposes their late images', async () => {
   const f = fixture(), zoom = { ...view, width: 2048, height: 2048, screenWidth: 2048, screenHeight: 2048 };
   f.renderer.update(zoom); expect(f.requests).toHaveLength(6);
   f.renderer.update({ ...zoom, x: 10000 }); f.renderer.update(zoom);
