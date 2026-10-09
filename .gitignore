@@ -1,0 +1,11 @@
+node_modules/
+target/
+pkg/
+dist/
+work/
+tools/bin/
+demo/public/maps/
+.env
+*.log
+__pycache__/
+.venv/
