@@ -1,6 +1,7 @@
 """Queue ownership and disconnect behavior, without Blender or game assets."""
 
 import importlib.util
+import json
 import socket
 import tempfile
 import threading
@@ -16,6 +17,41 @@ SPEC.loader.exec_module(renderer)
 
 
 class SatelliteQueueTests(unittest.TestCase):
+    def test_receipt_read_retries_transient_windows_worker_lock(self):
+        path = Path("receipt.json")
+        with mock.patch.object(Path, "read_text", side_effect=[
+            PermissionError("Worker temporarily denies reading"), '[{"seconds": 1}]'
+        ]) as read, mock.patch.object(renderer.time, "sleep") as sleep:
+            self.assertEqual(renderer.read_receipt(path), [{"seconds": 1}])
+        self.assertEqual(read.call_count, 2)
+        sleep.assert_called_once_with(.05)
+
+    def test_receipt_read_persistent_permission_error_is_bounded(self):
+        error = PermissionError("Receipt remains inaccessible")
+        with mock.patch.object(Path, "read_text", side_effect=error) as read, \
+                mock.patch.object(renderer.time, "sleep") as sleep:
+            with self.assertRaises(PermissionError) as caught:
+                renderer.read_receipt(Path("receipt.json"), missing_ok=True)
+        self.assertIs(caught.exception, error)
+        self.assertEqual(read.call_count, 40)
+        self.assertEqual(sleep.call_count, 39)
+
+    def test_missing_initial_receipt_returns_empty_without_exists_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "receipt.json"
+            with mock.patch.object(Path, "exists", side_effect=AssertionError("Racy existence check")):
+                self.assertEqual(renderer.read_receipt(path, missing_ok=True), [])
+                with self.assertRaises(FileNotFoundError):
+                    renderer.read_receipt(path)
+
+    def test_receipt_read_does_not_retry_or_hide_corruption(self):
+        with mock.patch.object(Path, "read_text", return_value='[{"broken":') as read, \
+                mock.patch.object(renderer.time, "sleep") as sleep:
+            with self.assertRaises(json.JSONDecodeError):
+                renderer.read_receipt(Path("receipt.json"), missing_ok=True)
+        self.assertEqual(read.call_count, 1)
+        sleep.assert_not_called()
+
     def test_atomic_receipt_retries_transient_windows_reader_lock(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "receipt.json"

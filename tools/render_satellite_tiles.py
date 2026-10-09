@@ -191,6 +191,21 @@ def atomic_json(path, value):
             time.sleep(.05)
 
 
+def read_receipt(path, *, missing_ok=False):
+    """Retry brief Windows sharing conflicts with the worker's atomic replace."""
+    for attempt in range(40):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            if missing_ok:
+                return []
+            raise
+        except PermissionError:
+            if attempt == 39:
+                raise
+            time.sleep(.05)
+
+
 def blender_worker(job_path, *, owns_slot=False):
     """Restore scene visibility even when a queued render fails."""
     import bpy
@@ -650,15 +665,16 @@ def main():
             consumed = 0
             try:
                 while True:
-                    completed = json.loads(receipt.read_text()) if receipt.exists() else []
+                    completed = read_receipt(receipt, missing_ok=True)
                     if consume:
                         for result in completed[consumed:]:
                             consume(result)
-                        consumed = len(completed)
+                        # A missing poll must not replay already sliced/deleted PNGs.
+                        consumed = max(consumed, len(completed))
                     status = process.poll()
                     if status is not None:
                         # Read again after exit to catch the final atomic receipt update.
-                        completed = json.loads(receipt.read_text()) if receipt.exists() else []
+                        completed = read_receipt(receipt, missing_ok=True)
                         if consume:
                             for result in completed[consumed:]:
                                 consume(result)
@@ -670,7 +686,7 @@ def main():
                 if process.poll() is None:
                     process.terminate()
                     process.wait(timeout=20)
-        return json.loads(receipt.read_text())
+        return read_receipt(receipt)
 
     if args.benchmark:
         samples = json.loads(args.benchmark.read_text())
