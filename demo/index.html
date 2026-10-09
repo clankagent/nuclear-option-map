@@ -69,6 +69,22 @@
               <span>Line smoothing <output id="smoothing-value">40 m</output></span>
               <input id="smoothing-input" type="range" min="0" max="80" step="4" value="40" aria-label="Contour line smoothing" disabled>
             </label>
+            <label class="field" id="topo-field" hidden>
+              <span>Terrain fill</span>
+              <select id="topo-select" disabled>
+                <option value="plain">Plain</option>
+                <option value="lowlands-dark">Darker lowlands</option>
+                <option value="elevation-colours">Elevation colours</option>
+              </select>
+            </label>
+            <label class="check" id="relief-field" hidden>
+              <input type="checkbox" id="relief-toggle" disabled>
+              <span>Shaded relief</span>
+            </label>
+            <label class="field" id="strength-field" hidden>
+              <span>Strength <output id="strength-value">45%</output></span>
+              <input id="strength-input" type="range" min="0" max="100" step="5" value="45" aria-label="Topographic colour and relief strength" disabled>
+            </label>
           </div>
         </details>
         <details class="pop help" id="about">
@@ -78,6 +94,7 @@
             <p>Builtin shows the map sprite with the tint applied. Raw shows the sprite source unmodified. Satellite and topographic views use their own colors.</p>
             <p>Coordinates are meters from the map center: X east, Z north. Grid cells are 10 km wide.</p>
             <p>Detailed views load pre-rendered tiles as you zoom. Topographic contours follow the extracted ground model. Auto shows finer elevation intervals when zoomed in; Settings also offers fixed intervals and line smoothing. Zero smoothing shows the unsmoothed contours. Elevations are meters above the game's sea level.</p>
+            <p>Topographic Settings offers darker lowlands, green-to-cream elevation colours, and relief lit from the northwest. Strength adjusts their subtlety beneath the contours. These styles use ground elevations; roads and buildings remain visible, and water stays blue.</p>
           </div>
         </details>
       </div>

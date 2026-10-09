@@ -1,17 +1,17 @@
 import { createMapViewer, loadMapCatalog, validateMapCatalog } from '../src/index.ts';
-import type { MapDefinition, ContourPreference, ContourInterval } from '../src/index.ts';
+import type { MapDefinition, ContourPreference, ContourInterval, TopoStyle } from '../src/index.ts';
 
 type Viewer = Awaited<ReturnType<typeof createMapViewer>>;
 type ViewState = Viewer['state'];
 type Mode = 'builtin' | 'raw';
 type Labels = 'edges' | 'cells' | 'none';
-type Variant = { id: string; label: string; image: string; kind: 'builtin' | 'terrain'; tiles?: MapDefinition['tiles']; contours?: MapDefinition['contours'] };
-type Settings = { grid: boolean; labels: Labels; tint: string; contourInterval: ContourPreference; contourSmoothingMeters: number };
+type Variant = { id: string; label: string; image: string; kind: 'builtin' | 'terrain'; tiles?: MapDefinition['tiles']; contours?: MapDefinition['contours']; topography?: MapDefinition['topography'] };
+type Settings = { grid: boolean; labels: Labels; tint: string; contourInterval: ContourPreference; contourSmoothingMeters: number; topoStyle: TopoStyle; topoStrength: number; topoHillshade: boolean };
 
 const ORIGINAL = 'original';
 const SETTINGS_KEY = 'nuclear-option-map.settings.v2';
 const VARIANTS_URL = '/maps/variants.json';
-const DEFAULTS: Settings = { grid: true, labels: 'edges', tint: '#6f9d75', contourInterval: 'auto', contourSmoothingMeters: 40 };
+const DEFAULTS: Settings = { grid: true, labels: 'edges', tint: '#6f9d75', contourInterval: 'auto', contourSmoothingMeters: 40, topoStyle: 'plain', topoStrength: .45, topoHillshade: false };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>('map-canvas');
@@ -27,6 +27,13 @@ const contourSelect = $<HTMLSelectElement>('contour-select');
 const smoothingField = $('smoothing-field');
 const smoothingInput = $<HTMLInputElement>('smoothing-input');
 const smoothingValue = $('smoothing-value');
+const topoField = $('topo-field');
+const topoSelect = $<HTMLSelectElement>('topo-select');
+const reliefField = $('relief-field');
+const reliefToggle = $<HTMLInputElement>('relief-toggle');
+const strengthField = $('strength-field');
+const strengthInput = $<HTMLInputElement>('strength-input');
+const strengthValue = $('strength-value');
 const intervalEl = $('interval');
 const zoomInBtn = $<HTMLButtonElement>('zoom-in');
 const zoomOutBtn = $<HTMLButtonElement>('zoom-out');
@@ -66,6 +73,9 @@ function loadSettings(): Settings {
       if (isTint(raw.tint)) out.tint = raw.tint.toLowerCase();
       if (raw.contourInterval === 'auto' || raw.contourInterval === 10 || raw.contourInterval === 20 || raw.contourInterval === 50 || (currentSettings && raw.contourInterval === 100)) out.contourInterval = raw.contourInterval;
       if (typeof raw.contourSmoothingMeters === 'number' && Number.isFinite(raw.contourSmoothingMeters) && raw.contourSmoothingMeters >= 0 && raw.contourSmoothingMeters <= 80) out.contourSmoothingMeters = raw.contourSmoothingMeters;
+      if (raw.topoStyle === 'plain' || raw.topoStyle === 'lowlands-dark' || raw.topoStyle === 'elevation-colours') out.topoStyle = raw.topoStyle;
+      if (typeof raw.topoStrength === 'number' && Number.isFinite(raw.topoStrength) && raw.topoStrength >= 0 && raw.topoStrength <= 1) out.topoStrength = raw.topoStrength;
+      if (typeof raw.topoHillshade === 'boolean') out.topoHillshade = raw.topoHillshade;
     }
   } catch { /* blocked storage or invalid data: use defaults */ }
   return out;
@@ -73,7 +83,7 @@ function loadSettings(): Settings {
 
 function saveSettings() {
   try {
-    const s: Settings = { grid: gridToggle.checked, labels: labelsSelect.value as Labels, tint: tintInput.value, contourInterval: contourPreference, contourSmoothingMeters: Number(smoothingInput.value) };
+    const s: Settings = { grid: gridToggle.checked, labels: labelsSelect.value as Labels, tint: tintInput.value, contourInterval: contourPreference, contourSmoothingMeters: Number(smoothingInput.value), topoStyle: topoSelect.value as TopoStyle, topoStrength: Number(strengthInput.value) / 100, topoHillshade: reliefToggle.checked };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
   } catch { /* storage unavailable; settings just won't persist */ }
 }
@@ -107,6 +117,10 @@ function syncControls() {
   smoothingField.hidden = contourIntervals.length === 0;
   contourSelect.disabled = !hasMap;
   smoothingInput.disabled = !hasMap;
+  const hasTopography = !!viewer?.state.map?.topography;
+  topoField.hidden = reliefField.hidden = strengthField.hidden = !hasTopography;
+  topoSelect.disabled = reliefToggle.disabled = !hasMap;
+  strengthInput.disabled = !hasMap || topoSelect.value === 'plain' && !reliefToggle.checked;
   for (const option of contourSelect.options) option.disabled = option.value !== 'auto' && !contourIntervals.includes(Number(option.value) as ContourInterval);
   contourSelect.value = String(contourPreference);
   zoomInBtn.disabled = zoomOutBtn.disabled = fitBtn.disabled = !hasMap;
@@ -149,7 +163,7 @@ async function showMap(map: MapDefinition, variantId: string) {
   showOverlay('Loading map', variant ? `${map.name} · ${variant.label}` : map.name);
   try {
     viewer.setMode(variant?.kind === 'terrain' ? 'raw' : userMode);
-    await viewer.setMap(variant ? { ...map, image: variant.image, tiles: variant.tiles, contours: variant.contours } : map, { preserveView: sameMap });
+    await viewer.setMap(variant ? { ...map, image: variant.image, tiles: variant.tiles, contours: variant.contours, topography: variant.topography } : map, { preserveView: sameMap });
     if (token !== switchToken) return;
     current = map;
     currentVariant = variant ? variant.id : ORIGINAL;
@@ -214,6 +228,14 @@ function bindControls() {
     smoothingValue.textContent = `${meters} m`;
     saveSettings();
   });
+  const applyTopoStyle = () => {
+    viewer?.setTopoStyle(topoSelect.value as TopoStyle, Number(strengthInput.value) / 100, reliefToggle.checked);
+    strengthValue.textContent = `${strengthInput.value}%`;
+    syncControls(); saveSettings();
+  };
+  topoSelect.addEventListener('change', applyTopoStyle);
+  reliefToggle.addEventListener('change', applyTopoStyle);
+  strengthInput.addEventListener('input', applyTopoStyle);
   zoomInBtn.addEventListener('click', () => viewer?.zoomIn());
   zoomOutBtn.addEventListener('click', () => viewer?.zoomOut());
   fitBtn.addEventListener('click', () => viewer?.fit());
@@ -258,11 +280,11 @@ async function loadVariants() {
         let definition: MapDefinition;
         try {
           const original = maps.find(m => m.id === mapId)!;
-          definition = validateMapCatalog({ schemaVersion: 1, maps: [{ ...original, image: v.image, tiles: v.tiles, contours: v.contours }] }, base).maps[0];
+          definition = validateMapCatalog({ schemaVersion: 1, maps: [{ ...original, image: v.image, tiles: v.tiles, contours: v.contours, topography: v.topography }] }, base).maps[0];
           if (!['http:', 'https:'].includes(new URL(definition.image).protocol)) continue;
         } catch { continue; }
         ids.add(v.id);
-        ok.push({ id: v.id, label: v.label.trim(), image: definition.image, tiles: definition.tiles, contours: definition.contours, kind: v.kind });
+        ok.push({ id: v.id, label: v.label.trim(), image: definition.image, tiles: definition.tiles, contours: definition.contours, topography: definition.topography, kind: v.kind });
       }
       if (ok.length) variants.set(mapId, ok);
     }
@@ -277,6 +299,10 @@ async function init() {
   gridToggle.checked = saved.grid;
   labelsSelect.value = saved.labels;
   tintInput.value = saved.tint;
+  topoSelect.value = saved.topoStyle;
+  strengthInput.value = String(Math.round(saved.topoStrength * 100));
+  strengthValue.textContent = `${strengthInput.value}%`;
+  reliefToggle.checked = saved.topoHillshade;
   bindControls();
   showOverlay('Starting', 'Initializing map engine…');
   try {
@@ -287,6 +313,7 @@ async function init() {
       tint: saved.tint,
       contourInterval: saved.contourInterval,
       contourSmoothingMeters: saved.contourSmoothingMeters,
+      topoStyle: saved.topoStyle, topoStrength: saved.topoStrength, topoHillshade: saved.topoHillshade,
       onViewChange,
       onPointerMove,
     });

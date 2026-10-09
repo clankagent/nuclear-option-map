@@ -39,4 +39,13 @@ describe('map catalog contracts', () => {
   it('returns independent grid metadata', () => {
     const copy = validateMap(map); copy.grid.columns = 20; expect(map.grid.columns).toBe(8);
   });
+  it('validates and independently resolves lossless ground-height pyramids', () => {
+    const topography = { minHeightMeters: 0, maxHeightMeters: 1000, heightStepMeters: .1, tiles: { tileSize: 256, gutter: 2, levels: [{ level: 0, width: 256, height: 256, columns: 1, rows: 1, urlTemplate: 'heights/{x}/{y}.png?v=abcd' }] } };
+    const result = validateMapCatalog({ schemaVersion: 1, maps: [{ ...map, topography }] }, 'https://example.org/maps/manifest.json').maps[0];
+    expect(result.topography?.tiles.levels[0].urlTemplate).toBe('https://example.org/maps/heights/{x}/{y}.png?v=abcd');
+    expect(topography.tiles.levels[0].urlTemplate).toBe('heights/{x}/{y}.png?v=abcd');
+    for (const heightStepMeters of [0, NaN, .001]) expect(() => validateMap({ ...map, topography: { ...topography, heightStepMeters } })).toThrow('height encoding');
+    expect(() => validateMap({ ...map, topography: { ...topography, tiles: { ...topography.tiles, levels: [] } } })).toThrow('pyramid');
+    expect(() => validateMapCatalog({ schemaVersion: 1, maps: [{ ...map, topography: { ...topography, tiles: { ...topography.tiles, levels: [{ ...topography.tiles.levels[0], urlTemplate: 'javascript:{x}/{y}' }] } } }] }, 'https://example.org/')).toThrow('topography URL');
+  });
 });

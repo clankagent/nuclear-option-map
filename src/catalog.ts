@@ -1,3 +1,4 @@
+import type { TopographyPyramid } from './topo-style';
 export interface PyramidLevel { level: number; width: number; height: number; columns: number; rows: number; urlTemplate: string }
 export interface TilePyramid { tileSize: number; gutter?: number; levels: PyramidLevel[] }
 export type ContourInterval = 10 | 20 | 50 | 100;
@@ -13,6 +14,7 @@ export interface MapDefinition {
   tint?: string;
   tiles?: TilePyramid;
   contours?: ContourPyramid;
+  topography?: TopographyPyramid;
 }
 export interface MapCatalog { schemaVersion: 1; maps: MapDefinition[] }
 export function gridCell(map: MapDefinition, x: number, z: number) {
@@ -74,7 +76,17 @@ export function validateMap(value: unknown): MapDefinition {
     if (levels[0].columns * levels[0].rows > 4) throw new TypeError('Contour root must contain at most four tiles');
     contours = { intervals: [...c.intervals], levels };
   }
-  return { ...m, grid: { ...m.grid }, ...(tiles ? { tiles } : {}), ...(contours ? { contours } : {}) };
+  let topography: TopographyPyramid | undefined;
+  if (m.topography !== undefined) {
+    const p = m.topography;
+    if (!p || !Number.isFinite(p.minHeightMeters) || !Number.isFinite(p.maxHeightMeters) || p.maxHeightMeters <= p.minHeightMeters || !Number.isFinite(p.heightStepMeters) || p.heightStepMeters <= 0 || p.heightStepMeters > 1000 || (p.maxHeightMeters - p.minHeightMeters) / p.heightStepMeters > 65535) throw new TypeError('Invalid topography height encoding');
+    // Share the same strict pyramid validation as ordinary raster layers.
+    const validated = validateMap({ ...m, topography: undefined, tiles: p.tiles });
+    if (!validated.tiles || validated.tiles.tileSize > 512) throw new TypeError('Topography tiles must use a tile size of at most 512 pixels');
+    if (validated.tiles.levels[0].columns * validated.tiles.levels[0].rows > 4) throw new TypeError('Topography root must contain at most four tiles');
+    topography = { ...p, tiles: validated.tiles };
+  }
+  return { ...m, grid: { ...m.grid }, ...(tiles ? { tiles } : {}), ...(contours ? { contours } : {}), ...(topography ? { topography } : {}) };
 }
 export function validateMapCatalog(value: unknown, baseUrl: string): MapCatalog {
   const c = value as MapCatalog;
@@ -94,6 +106,11 @@ export function validateMapCatalog(value: unknown, baseUrl: string): MapCatalog 
     if (map.contours) for (const level of map.contours.levels) {
       const resolved = new URL(level.urlTemplate, baseUrl);
       if (!['http:', 'https:', 'file:'].includes(resolved.protocol)) throw new TypeError('Unsupported contour URL');
+      level.urlTemplate = resolved.href.replace(/%7B/gi, '{').replace(/%7D/gi, '}');
+    }
+    if (map.topography) for (const level of map.topography.tiles.levels) {
+      const resolved = new URL(level.urlTemplate, baseUrl);
+      if (!['http:', 'https:', 'file:'].includes(resolved.protocol)) throw new TypeError('Unsupported topography URL');
       level.urlTemplate = resolved.href.replace(/%7B/gi, '{').replace(/%7D/gi, '}');
     }
     return map;

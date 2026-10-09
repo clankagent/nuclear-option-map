@@ -47,6 +47,20 @@ function surfaces(failObserve = false) {
 }
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); contour.fail = false; contour.waitInterval = null; contour.resolvers = []; core.scale = 1; });
 describe('viewer construction lifecycle', () => {
+  it('retains optional topo preferences across maps and rejects invalid strength before mutation', async () => {
+    const surface = surfaces();
+    vi.stubGlobal('Image', class { naturalWidth = 10; naturalHeight = 10; onload?: () => void; set src(_value: string) { queueMicrotask(() => this.onload?.()); } });
+    const map = { id: 'a', name: 'A', widthMeters: 1000, heightMeters: 1000, image: 'a.png', grid: { columns: 1, rows: 1, offsetX: 0, offsetY: 0 } };
+    const viewer = await createMapViewer(surface.canvas, { mode: 'raw', grid: false, topoStyle: 'lowlands-dark', topoStrength: .3, topoHillshade: true });
+    await viewer.setMap(map);
+    expect(viewer.state).toMatchObject({ topoStyle: 'lowlands-dark', topoStrength: .3, topoHillshade: true });
+    expect(() => viewer.setTopoStyle('plain', 1.1)).toThrow('strength');
+    expect(viewer.state.topoStrength).toBe(.3);
+    viewer.setTopoStyle('elevation-colours', .6, false);
+    await viewer.setMap({ ...map, id: 'b' });
+    expect(viewer.state).toMatchObject({ topoStyle: 'elevation-colours', topoStrength: .6, topoHillshade: false });
+    viewer.destroy();
+  });
   it('coalesces input bursts into one paint and cancels queued paints on disposal', async () => {
     const surface = surfaces();
     const viewer = await createMapViewer(surface.canvas);

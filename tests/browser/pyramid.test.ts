@@ -11,7 +11,7 @@ function fixture(budget?: number) {
   const renderer = new PyramidRenderer(pyramid, (url, signal) => new Promise((resolve, reject) => requests.push({ url, signal, resolve, reject })), redraw, budget, () => now);
   const image = () => ({ image: {} as CanvasImageSource, width: 512, height: 512, dispose: vi.fn() });
   vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1)); vi.stubGlobal('cancelAnimationFrame', vi.fn());
-  const ctx = { save: vi.fn(), restore: vi.fn(), drawImage: vi.fn(), globalAlpha: 1 } as unknown as CanvasRenderingContext2D;
+  const ctx = { save: vi.fn(), restore: vi.fn(), drawImage: vi.fn(), beginPath: vi.fn(), rect: vi.fn(), clip: vi.fn(), globalAlpha: 1 } as unknown as CanvasRenderingContext2D;
   return { renderer, requests, redraw, image, ctx, tick: (value: number) => { now = value; } };
 }
 afterEach(() => vi.unstubAllGlobals());
@@ -58,13 +58,90 @@ it('retries visible transient errors with backoff and stops after three attempts
   f.tick(10000); f.renderer.update(view); expect(f.requests).toHaveLength(3); f.renderer.destroy();
 });
 it('retains finer children while zoom-out parent loads then smoothly withdraws them', async () => {
-  const f = fixture(); f.renderer.update({ ...view, width: 1024, height: 1024 }); const child = f.image(); f.requests[0].resolve(child); await flush(); f.tick(200);
+  const f = fixture(); f.renderer.update({ ...view, width: 1024, height: 1024 }); const child = f.image(); f.requests.find(r => r.url === 'https://test/1/0/0')!.resolve(child); await flush(); f.tick(200);
   f.renderer.update({ ...view, width: 400, height: 400 }); f.renderer.draw(f.ctx, view); expect(child.dispose).not.toHaveBeenCalled();
   const parentRequest = f.requests.find(r => r.url === 'https://test/0/0/0')!; parentRequest.resolve(f.image()); await flush();
   f.tick(290); f.renderer.draw(f.ctx, view); expect(f.ctx.globalAlpha).toBe(.5);
   f.tick(400); (f.ctx.drawImage as ReturnType<typeof vi.fn>).mockClear(); f.renderer.draw(f.ctx, view);
   expect((f.ctx.drawImage as ReturnType<typeof vi.fn>).mock.calls.some(call => call[0] === child.image)).toBe(false);
   f.renderer.destroy();
+});
+it('loads progressive ancestors on direct zoom before detail and defers speculative neighbors', async () => {
+  const f = fixture(); const zoom = { ...view, width: 2048, height: 2048, screenWidth: 200, screenHeight: 200 };
+  f.renderer.update(zoom);
+  expect(f.requests.map(r => r.url)).toEqual(['https://test/0/0/0', 'https://test/1/0/0', 'https://test/2/0/0']);
+  const parent = f.image(); f.requests[0].resolve(parent); await flush(); f.tick(200);
+  f.renderer.draw(f.ctx, zoom); expect(f.ctx.drawImage).toHaveBeenCalledWith(parent.image, 0, 0, 512, 512, 0, 0, 2048, 2048);
+  expect(f.requests).toHaveLength(3);
+  f.requests[1].resolve(f.image()); f.requests[2].resolve(f.image()); await flush();
+  expect(f.renderer.stats.visiblePending).toBe(0);
+  expect(f.requests).toHaveLength(5); // only two neighbor slots
+  f.renderer.destroy();
+});
+it('promotes an inflight neighbor during a pan without cancelling or restarting it', async () => {
+  const f = fixture(); const zoom = { ...view, width: 2048, height: 2048, screenWidth: 200, screenHeight: 200 };
+  f.renderer.update(zoom);
+  for (const r of [...f.requests]) r.resolve(f.image()); await flush();
+  const neighbor = f.requests.find(r => r.url === 'https://test/2/1/0')!;
+  expect(neighbor).toBeDefined();
+  for (let x = -520; x >= -700; x -= 20) f.renderer.update({ ...zoom, x });
+  expect(neighbor.signal.aborted).toBe(false);
+  expect(f.requests.filter(r => r.url === neighbor.url)).toHaveLength(1);
+  neighbor.resolve(f.image()); await flush(); f.renderer.destroy();
+});
+it('keeps decoded detail warm across a nearby pan and removes redundant ancestor draws', async () => {
+  const f = fixture(); const zoom = { ...view, width: 1024, height: 1024, screenWidth: 1024, screenHeight: 1024 };
+  f.renderer.update(zoom);
+  for (const r of [...f.requests]) r.resolve(f.image()); await flush(); f.tick(200);
+  f.renderer.draw(f.ctx, zoom);
+  expect(f.ctx.drawImage).toHaveBeenCalledTimes(4);
+  const count = f.requests.length;
+  f.renderer.update({ ...zoom, x: -300 }); f.renderer.update(zoom);
+  expect(f.requests).toHaveLength(count);
+  expect(f.renderer.stats.bytes).toBeLessThanOrEqual(128 * 1024 * 1024);
+  f.renderer.destroy();
+});
+it('clips a settled ancestor to visible holes without repainting the completed quadrant', async () => {
+  const f = fixture(), zoom = { ...view, width: 1024, height: 1024, screenWidth: 800, screenHeight: 400 };
+  f.renderer.update(zoom);
+  f.requests.find(r => r.url === 'https://test/0/0/0')!.resolve(f.image());
+  f.requests.find(r => r.url === 'https://test/1/0/0')!.resolve(f.image());
+  await flush(); f.tick(200); f.renderer.draw(f.ctx, zoom);
+  expect(f.ctx.clip).toHaveBeenCalledOnce();
+  expect(f.ctx.rect).toHaveBeenCalledExactlyOnceWith(512, 0, 512, 512);
+  expect(f.ctx.drawImage).toHaveBeenCalledTimes(2);
+  f.renderer.destroy();
+});
+it('holds cancelled decoder slots until promises settle and disposes their late images', async () => {
+  const f = fixture(), zoom = { ...view, width: 2048, height: 2048, screenWidth: 2048, screenHeight: 2048 };
+  f.renderer.update(zoom); expect(f.requests).toHaveLength(6);
+  f.renderer.update({ ...zoom, x: 10000 }); f.renderer.update(zoom);
+  expect(f.requests).toHaveLength(6);
+  const images = f.requests.map(() => f.image());
+  for (let i = 0; i < 6; i++) f.requests[i].resolve(images[i]); await flush();
+  expect(images.every(image => (image.dispose as ReturnType<typeof vi.fn>).mock.calls.length === 1)).toBe(true);
+  expect(f.requests).toHaveLength(12);
+  f.renderer.destroy();
+});
+it('enforces a hard cap through zoom-out retention without repeatedly loading fitting visible coverage', async () => {
+  const f = fixture(); const requests: {url:string; resolve:(image:TileImage)=>void}[]=[];
+  const small={...pyramid,tileSize:32,levels:pyramid.levels.map(l=>({...l,width:l.width/16,height:l.height/16}))};
+  const renderer=new PyramidRenderer(small,(url)=>new Promise(resolve=>requests.push({url,resolve})),vi.fn(),64*1024,()=>200,true);
+  const settle=async()=>{for(let batch=0;batch<8;batch++){for(const r of requests.splice(0))r.resolve({...f.image(),width:32,height:32});await flush();}};
+  const detail={...view,width:128,height:128,screenWidth:16,screenHeight:16};
+  // Build a warm cache across the whole detail grid, including children of older
+  // parents evicted during travel. Zoom-out protects these children while parents load.
+  for(let y=0;y<4;y++)for(let x=0;x<4;x++){renderer.update({...detail,x:-x*32,y:-y*32});await settle();}
+  expect(renderer.stats.level).toBe(2);
+  expect(renderer.stats.bytes).toBeLessThanOrEqual(64*1024);
+  const overview={...view,width:40,height:40,screenWidth:40,screenHeight:40};
+  renderer.update(overview); await settle();
+  const fitting=renderer.stats.cached;
+  for(let frame=0;frame<20;frame++)renderer.update(overview);
+  expect(requests).toHaveLength(0);
+  expect(renderer.stats.cached).toBe(fitting);
+  expect(renderer.stats.bytes).toBeLessThanOrEqual(64*1024);
+  renderer.destroy();
 });
 it('evicts offscreen decoded tiles by byte budget', async () => {
   const f = fixture(); const images: TileImage[] = [];

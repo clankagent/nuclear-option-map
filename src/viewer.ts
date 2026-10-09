@@ -3,6 +3,7 @@ import { gridReference, gridRowLabel, validateMap, validTint, type MapDefinition
 import { disposeRaster, drawRaster, tintRaster, type TiledRaster } from './tiled-raster';
 import { PyramidRenderer, type TileStats } from './pyramid';
 import { ContourRenderer } from './contours';
+import { TopoStyleRenderer, type TopoStyle } from './topo-style';
 
 export type MapMode = 'builtin' | 'raw';
 export type GridLabels = 'edges' | 'cells' | 'none';
@@ -14,12 +15,14 @@ export interface ViewState {
   contourInterval?: ContourInterval;
   contourPreference: ContourPreference;
   contourSmoothingMeters: number;
+  topoStyle: TopoStyle; topoStrength: number; topoHillshade: boolean;
 }
 export interface MapPointer { x: number; z: number; insideMap: boolean; gridReference: string | null }
 export interface MapViewerOptions {
   map?: MapDefinition; mode?: MapMode; grid?: boolean; gridLabels?: GridLabels; tint?: string;
   contourInterval?: ContourPreference;
   contourSmoothingMeters?: number;
+  topoStyle?: TopoStyle; topoStrength?: number; topoHillshade?: boolean;
   onViewChange?: (state: ViewState) => void;
   onPointerMove?: (position: MapPointer | null) => void;
 }
@@ -52,6 +55,10 @@ export class MapViewer {
   private tinted: TiledRaster | null = null;
   private pyramid: PyramidRenderer | null = null;
   private contours: ContourRenderer | null = null;
+  private topography: TopoStyleRenderer | null = null;
+  private topoStyle: TopoStyle;
+  private topoStrength: number;
+  private topoHillshade: boolean;
   private contourGeneration = 0;
   private contourPending: ContourRenderer | null = null;
   private preferredContourInterval: ContourPreference;
@@ -91,6 +98,8 @@ export class MapViewer {
     this.ctx = ctx;
     this.mode = options.mode ?? 'builtin';
     this.grid = options.grid ?? true;
+    this.topoStyle = options.topoStyle ?? 'plain'; this.topoStrength = options.topoStrength ?? .45; this.topoHillshade = options.topoHillshade ?? false;
+    this.validateTopoStyle(this.topoStyle, this.topoStrength);
     this.preferredContourInterval = options.contourInterval ?? 'auto';
     if (this.preferredContourInterval !== 'auto' && ![10, 20, 50, 100].includes(this.preferredContourInterval)) throw new TypeError('Contour interval must be auto, 10, 20, 50, or 100 meters');
     this.contourSmoothingMeters = options.contourSmoothingMeters ?? 40;
@@ -155,7 +164,7 @@ export class MapViewer {
   private assertAlive() { if (this.disposed) throw new Error('MapViewer has been destroyed'); }
   private local(e: MouseEvent) { const r = this.canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
   get state(): ViewState {
-    return { map: this.map ? validateMap(this.map) : null, mode: this.mode, grid: this.grid, gridLabels: this.gridLabels, tint: this.tint, zoom: this.viewport.zoom(), scale: this.viewport.scale(), centerX: this.viewport.centerX(), centerZ: this.viewport.centerZ(), width: this.width, height: this.height, contourPreference: this.preferredContourInterval, contourSmoothingMeters: this.contourSmoothingMeters, ...(this.pyramid ? { tileStats: this.pyramid.stats } : {}), ...(this.contours ? { contourInterval: this.contours.interval } : {}) };
+    return { map: this.map ? validateMap(this.map) : null, mode: this.mode, grid: this.grid, gridLabels: this.gridLabels, tint: this.tint, zoom: this.viewport.zoom(), scale: this.viewport.scale(), centerX: this.viewport.centerX(), centerZ: this.viewport.centerZ(), width: this.width, height: this.height, contourPreference: this.preferredContourInterval, contourSmoothingMeters: this.contourSmoothingMeters, topoStyle: this.topoStyle, topoStrength: this.topoStrength, topoHillshade: this.topoHillshade, ...(this.pyramid ? { tileStats: this.pyramid.stats } : {}), ...(this.contours ? { contourInterval: this.contours.interval } : {}) };
   }
   worldToScreen(x: number, z: number) { this.assertAlive(); const p = this.viewport.worldToScreen(x, z); return { x: p[0], y: p[1] }; }
   screenToWorld(x: number, y: number) { this.assertAlive(); const p = this.viewport.screenToWorld(x, y); return { x: p[0], z: p[1] }; }
@@ -188,10 +197,18 @@ export class MapViewer {
       viewport.pan(-this.viewport.centerX() * viewport.scale(), this.viewport.centerZ() * viewport.scale());
     }
     } catch (error) { viewport?.free(); disposeRaster(tinted); contours?.destroy(); throw error; }
+    let topography: TopoStyleRenderer | null = null;
+    try {
+      if (map.topography) {
+        topography = new TopoStyleRenderer(map.topography, () => this.draw());
+        topography.setStyle(this.topoStyle, this.topoStrength, this.topoHillshade);
+      }
+    } catch (error) { viewport.free(); disposeRaster(tinted); contours?.destroy(); topography?.destroy(); throw error; }
     disposeRaster(this.tinted);
     this.pyramid?.destroy(); this.pyramid = null;
     this.contourGeneration++; this.contourPending?.destroy(); this.contourPending = null; this.contours?.destroy(); this.contours = contours;
     this.viewport.free(); this.viewport = viewport; this.map = map; this.source = image;
+    this.topography?.destroy(); this.topography = topography;
     this.tint = tint; this.tinted = tinted; this.resetPyramid(); this.changed();
   }
   zoomIn() { this.zoomBy(1.5); }
@@ -241,7 +258,15 @@ export class MapViewer {
     if (this.disposed || token !== this.contourGeneration) { next.destroy(); return; }
     this.contours?.destroy(); this.contours = next; this.contourPending = null; this.draw(); this.options.onViewChange?.(this.state);
   }
-  setMode(value: MapMode) { this.assertAlive(); if (value !== 'builtin' && value !== 'raw') throw new TypeError('Unknown map mode'); if (value === 'builtin' && this.source && !this.tinted) this.tinted = tintRaster(this.source, this.tint); this.mode = value; this.resetPyramid(); this.changed(); }
+  setMode(value: MapMode) { this.assertAlive(); if (value !== 'builtin' && value !== 'raw') throw new TypeError('Unknown map mode'); if (value === this.mode) return; if (value === 'builtin' && this.source && !this.tinted) this.tinted = tintRaster(this.source, this.tint); this.mode = value; this.resetPyramid(); this.changed(); }
+  private validateTopoStyle(style: TopoStyle, strength: number) {
+    if (!['plain', 'lowlands-dark', 'elevation-colours', 'hillshade'].includes(style) || !Number.isFinite(strength) || strength < 0 || strength > 1) throw new TypeError('Topography style and strength (0–1) are required');
+  }
+  setTopoStyle(style: TopoStyle, strength = this.topoStrength, hillshade = this.topoHillshade) {
+    this.assertAlive(); this.validateTopoStyle(style, strength);
+    this.topoStyle = style; this.topoStrength = strength; this.topoHillshade = hillshade;
+    this.topography?.setStyle(style, strength, hillshade); this.changed();
+  }
   setTint(value: string) { this.assertAlive(); if (!validTint(value)) throw new TypeError('Tint must be #RRGGBB'); const tinted = this.source && this.mode === 'builtin' ? tintRaster(this.source, value) : null; disposeRaster(this.tinted); this.tint = value; this.customTint = true; this.tinted = tinted; this.resetPyramid(); this.changed(); }
   private resetPyramid() {
     this.pyramid?.destroy(); this.pyramid = null;
@@ -293,6 +318,10 @@ export class MapViewer {
     if (this.pyramid) {
       const view = { x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y, screenWidth: this.width, screenHeight: this.height, dpr: this.canvas.width / this.width };
       this.pyramid.update(view); this.pyramid.draw(ctx, view);
+    }
+    if (this.topography) {
+      const view = { x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y, screenWidth: this.width, screenHeight: this.height, dpr: this.canvas.width / this.width };
+      this.topography.update(view); this.topography.draw(ctx, view);
     }
     this.contours?.draw(ctx, { width: this.width, height: this.height, scale: this.viewport.scale(), dpr: this.canvas.width / this.width, worldToScreen: (x, z) => this.worldToScreen(x, z), screenToWorld: (x, y) => this.screenToWorld(x, y) });
     if (!this.grid) return;
@@ -348,6 +377,7 @@ export class MapViewer {
     for (const id of this.pointers.keys()) if (this.canvas.hasPointerCapture(id)) this.canvas.releasePointerCapture(id);
     this.pointers.clear(); this.viewport.free(); this.source = null; disposeRaster(this.tinted); this.tinted = null; this.pyramid?.destroy(); this.pyramid = null;
     this.contourGeneration++; this.contourPending?.destroy(); this.contours?.destroy(); this.contours = null; this.contourPending = null;
+    this.topography?.destroy(); this.topography = null;
     for (const pending of this.preparingContours) pending.destroy(); this.preparingContours.clear();
     this.canvas.style.touchAction = this.previousTouchAction;
     if (this.previousTabIndex === null) this.canvas.removeAttribute('tabindex'); else this.canvas.setAttribute('tabindex', this.previousTabIndex);

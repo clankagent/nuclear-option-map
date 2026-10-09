@@ -90,6 +90,15 @@ The output `tiles.json` supplies `image`, `tiles` and `contours` for a map defin
 
 ### Terrain material preparation
 
+Optional ground tint and northwest relief use a separate lossless height pyramid:
+
+```powershell
+uv run --script tools/build_topography_tiles.py --cache work/terrain/tiles-heartland --manifest demo/public/maps/manifest.json --output demo/public/maps/terrain/heartland-46396/topography --levels 5
+uv run --script tools/test_topography_tiles.py
+```
+
+Use the matching native-geometry cache for each map. This CPU-only producer samples ground classes, excludes roofs, and keeps water/unknown transparent. It encodes measured height in RG, northwest illumination in B, and a binary coverage mask in A. Each tile is generated independently; five levels are bounded to an 8192-pixel maximum axis. Add `descriptor.json` as the map's `topography` field, resolving its templates relative to the containing terrain directory. The browser selects the fill/relief and strength without changing measured geometry or contour coordinates.
+
 Prepare material derivatives from a locally extracted material report before rebuilding a satellite scene:
 
 ```powershell
