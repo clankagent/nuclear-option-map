@@ -24,6 +24,14 @@ This importer constructs geometry without game shaders or UV/material fidelity. 
 
 For a private overhead scene with serialized materials and UVs, run `tools/render_material_prototype.py` in Blender 4+ with `geometry/scene.json`, the matching `work/extraction/material-report.json`, an ignored output folder, and a manifest map ID. It saves a packed `.blend` plus exact-bounds overview and a 3.84 km close-up when an `airbase_city` object exists. It preserves OBJ UVs and resolves complete transform hierarchies into world placements, excludes LOD1 child meshes when a primary ancestor mesh is present, ignores alpha from opaque URP textures, and omits `Shader Graphs/surf` because its `_Foam` input is an animated foam mask rather than a static base color. Unity DXT5nm normals use alpha for tangent X and green for Y; Blender reconstructs positive Z before normal mapping (`tests/extraction/test_dxt5nm.py` verifies bounded decoding). Terrain combines the referenced macro imagery with full-color sand, grass, rock, field and lush textures, red-channel masks and layered normals. A rough lit surface receives sunlight and casts terrain shadows. Source color-space flags, UV frequencies and alpha blends are retained. Small procedural UV breakup and dynamic clouds are omitted, so the offline scene remains an approximation of the complete game shader. All proprietary source textures and resulting scenes stay in ignored `work/`.
 
+`tools/prepare_satellite_batch.py` can prepare a compressed, packed camera animation for an offline renderer without rendering or uploading anything:
+
+```text
+blender --background work/heartland.blend --python tools/prepare_satellite_batch.py -- heartland-46396 81920 81920 work/heartland-batch.blend
+```
+
+Each frame covers two-by-two 512-pixel tiles at 5 meters per pixel, with 2-pixel gutters and 110 pixels of cleanup context on each side. The saved frame is 1248×1248 pixels; crop the context before splitting tiles. The companion `.batch.json` records frame positions and verified city, airport, mountain and coast preview cameras. A 736×736 preview of those same camera extents is 8.48 meters per pixel; overriding the render dimensions changes the pixel scale. Camera animation uses constant keys and the same north-up compositor as the local tile baker. Heartland has 256 frames and Ignus has 512; split these according to the chosen renderer's frame limit. Start from the original scene and use a distinct output path. The saved scene retains CPU rendering and two-thread settings; an external renderer controls its own resource policy.
+
 Create the material report from the same client data and extraction provenance before building a scene:
 
 ```powershell
