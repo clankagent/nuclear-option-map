@@ -1,0 +1,9 @@
+[workspace]
+members = ["crates/map-core", "crates/map-wasm"]
+resolver = "2"
+
+[profile.release]
+lto = true
+opt-level = "s"
+codegen-units = 1
+
