@@ -13,7 +13,7 @@ def key(ref):
     return (ref["assetFile"], ref["pathId"])
 
 
-def load(scene_path, destination, map_id):
+def load(scene_path, destination, map_id, mesh_filter=None):
     scene = json.loads(scene_path.read_text(encoding="utf-8"))
     records = [r for r in scene["objects"] if r["map"] == map_id]
     transforms = {key(r): r for r in records if r["type"] == "Transform"}
@@ -46,18 +46,21 @@ def load(scene_path, destination, map_id):
     for r in records:
         if "mesh" not in r:
             continue
+        if mesh_filter is not None and not mesh_filter(r):
+            continue
         filename = r["file"]
         if Path(filename).name != filename:
             raise ValueError("Geometry filename must stay within scene folder")
         if filename not in meshes:
             vertices, faces = [], []
-            for line in (scene_path.parent / filename).read_text(encoding="utf-8").splitlines():
-                parts = line.split()
-                if parts and parts[0] == "v":
-                    x, y, z = (float(x) for x in parts[1:4])
-                    vertices.append((-x, y, z))
-                elif parts and parts[0] == "f":
-                    faces.append(tuple(int(x.split("/")[0]) - 1 for x in reversed(parts[1:])))
+            with (scene_path.parent / filename).open(encoding="utf-8") as stream:
+                for line in stream:
+                    parts = line.split()
+                    if parts and parts[0] == "v":
+                        x, y, z = (float(x) for x in parts[1:4])
+                        vertices.append((-x, y, z))
+                    elif parts and parts[0] == "f":
+                        faces.append(tuple(int(x.split("/")[0]) - 1 for x in reversed(parts[1:])))
             mesh = bpy.data.meshes.new(filename)
             mesh.from_pydata(vertices, [], faces)
             mesh.update()
@@ -67,7 +70,9 @@ def load(scene_path, destination, map_id):
         obj.matrix_world = conversion @ matrix(r["transform"])
     bpy.context.scene.unit_settings.system = "METRIC"
     bpy.context.scene.unit_settings.scale_length = 1
-    bpy.ops.wm.save_as_mainfile(filepath=str(destination.resolve()))
+    if destination is not None:
+        bpy.ops.wm.save_as_mainfile(filepath=str(destination.resolve()))
+    return collection
 
 
 if __name__ == "__main__":

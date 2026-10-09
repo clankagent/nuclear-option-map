@@ -231,7 +231,9 @@ export class MapViewer {
     this.contours?.draw(ctx, { width: this.width, height: this.height, scale: this.viewport.scale(), dpr: this.canvas.width / this.width, worldToScreen: (x, z) => this.worldToScreen(x, z), screenToWorld: (x, y) => this.screenToWorld(x, y) });
     if (!this.grid) return;
     ctx.save(); ctx.beginPath(); ctx.rect(a.x, a.y, b.x - a.x, b.y - a.y); ctx.clip();
-    ctx.strokeStyle = 'rgba(216,235,224,.16)'; ctx.fillStyle = 'rgba(216,235,224,.58)'; ctx.lineWidth = 1; ctx.font = '10px system-ui';
+    const cartographic = !!m.contours;
+    ctx.strokeStyle = cartographic ? 'rgba(59,66,67,.22)' : 'rgba(216,235,224,.16)';
+    ctx.fillStyle = cartographic ? '#495253' : 'rgba(216,235,224,.58)'; ctx.lineWidth = 1; ctx.font = '10px system-ui';
     const dx = 10000, dz = 10000;
     const left = -m.grid.offsetX, top = m.grid.offsetY;
     const clipLeft = Math.max(0, a.x), clipRight = Math.min(this.width, b.x), clipTop = Math.max(0, a.y), clipBottom = Math.min(this.height, b.y);
@@ -247,7 +249,7 @@ export class MapViewer {
       const y = this.worldToScreen(0, top - row * dz).y; ctx.beginPath(); ctx.moveTo(a.x, y); ctx.lineTo(b.x, y); ctx.stroke();
     }
     if (this.gridLabels !== 'none' && dx * this.viewport.scale() >= (this.gridLabels === 'edges' ? 18 : 64) && dz * this.viewport.scale() >= (this.gridLabels === 'edges' ? 18 : 48) && clipRight - clipLeft > 48 && clipBottom - clipTop > 36) {
-      ctx.shadowColor = '#111a1a'; ctx.shadowBlur = 3;
+      ctx.shadowColor = cartographic ? 'transparent' : '#111a1a'; ctx.shadowBlur = cartographic ? 0 : 3;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       const centerCol = (col: number) => {
         const x = this.worldToScreen(left + col * dx, 0).x;

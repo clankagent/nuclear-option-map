@@ -26,6 +26,16 @@ it('places evenly spaced labels along long segments with upright angles', () => 
   const diagonal = contourLabelStations([{ x: 1000, y: 1000 }, { x: 0, y: 0 }]);
   expect(diagonal.every(p => p.angle >= -Math.PI / 2 && p.angle <= Math.PI / 2)).toBe(true);
 });
+it('jumps to visible stations on a deep-zoom path spanning billions of offscreen pixels', () => {
+  const stations = contourLabelStations([{ x: -1e9, y: 100 }, { x: 1e9, y: 100 }], 320, [0, 0, 1000, 500]);
+  expect(stations.length).toBeGreaterThan(0); expect(stations.length).toBeLessThanOrEqual(4);
+  expect(stations.every(p => p.x >= 0 && p.x <= 1000 && p.y === 100)).toBe(true);
+  expect(contourLabelStations([{ x: -1e9, y: -1000 }, { x: 1e9, y: -1000 }], 320, [0, 0, 1000, 500])).toEqual([]);
+});
+it('rejects invalid spacing instead of hanging and bounds pathological candidate counts', () => {
+  for (const spacing of [0, -1, NaN, Infinity, -Infinity]) expect(() => contourLabelStations([{ x: 0, y: 0 }, { x: 1000, y: 0 }], spacing)).toThrow('spacing');
+  expect(contourLabelStations([{ x: 0, y: 0 }, { x: 1e9, y: 0 }], 1)).toHaveLength(4096);
+});
 it('rejects mismatched ownership bounds', async () => {
   vi.stubGlobal('fetch', async () => ({ ok: true, json: async () => ({ ...data, bounds: [-1, -1, 1, 1] }) }));
   const renderer = new ContourRenderer({ intervals: [20], levels: [{ level: 0, columns: 1, rows: 1, urlTemplate: 'https://test/{interval}/{x}/{y}' }] }, 20, 1000, 1000, vi.fn());

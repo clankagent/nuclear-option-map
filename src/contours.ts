@@ -2,12 +2,37 @@ import type { ContourInterval, ContourPyramid } from './catalog';
 export interface ContourPath { id: string; elevationMeters: number; isIndex?: boolean; points: Float64Array }
 export interface ContourTile { bounds: [number, number, number, number]; paths: ContourPath[] }
 /** Fixed screen-distance candidates also work on a single long segment. */
-export function contourLabelStations(points: { x: number; y: number }[], spacing = 320) {
-  const stations: { x: number; y: number; angle: number }[] = []; let total = 0, next = 180;
+export function contourLabelStations(points: { x: number; y: number }[], spacing = 320, bounds?: [number, number, number, number]) {
+  if (!Number.isFinite(spacing) || spacing <= 0) throw new TypeError('Label spacing must be positive and finite');
+  if (bounds && (!bounds.every(Number.isFinite) || bounds[0] > bounds[2] || bounds[1] > bounds[3])) throw new TypeError('Invalid label bounds');
+  if (points.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y))) throw new TypeError('Label points must be finite');
+  const stations: { x: number; y: number; angle: number }[] = []; let total = 0;
   for (let i = 1; i < points.length; i++) {
     const a = points[i - 1], b = points[i], length = Math.hypot(b.x - a.x, b.y - a.y);
+    if (!Number.isFinite(length) || !Number.isFinite(total + length)) throw new TypeError('Label path length must be finite');
     if (length === 0) continue;
-    while (next <= total + length) { const fraction = (next - total) / length; let angle = Math.atan2(b.y - a.y, b.x - a.x); if (angle > Math.PI / 2) angle -= Math.PI; if (angle < -Math.PI / 2) angle += Math.PI; stations.push({ x: a.x + (b.x - a.x) * fraction, y: a.y + (b.y - a.y) * fraction, angle }); next += spacing; }
+    let enter = 0, exit = 1;
+    if (bounds) {
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const cuts = [[-dx, a.x - bounds[0]], [dx, bounds[2] - a.x], [-dy, a.y - bounds[1]], [dy, bounds[3] - a.y]];
+      for (const [direction, distance] of cuts) {
+        if (direction === 0) { if (distance < 0) { enter = 1; exit = 0; break; } }
+        else if (direction < 0) enter = Math.max(enter, distance / direction);
+        else exit = Math.min(exit, distance / direction);
+      }
+    }
+    if (enter <= exit) {
+      const first = Math.max(0, Math.ceil((total + enter * length - 180) / spacing));
+      const last = Math.floor((total + exit * length - 180) / spacing);
+      // Jump directly to visible stations instead of walking millions of offscreen intervals.
+      for (let station = first; Number.isFinite(station) && station <= last && stations.length < 4096; station++) {
+        const fraction = (180 + station * spacing - total) / length;
+        let angle = Math.atan2(b.y - a.y, b.x - a.x); if (angle > Math.PI / 2) angle -= Math.PI; if (angle < -Math.PI / 2) angle += Math.PI;
+        stations.push({ x: a.x + (b.x - a.x) * fraction, y: a.y + (b.y - a.y) * fraction, angle });
+        if (station + 1 === station) break;
+      }
+      if (stations.length >= 4096) return stations;
+    }
     total += length;
   }
   return stations;
@@ -134,7 +159,7 @@ export class ContourRenderer {
     for (const { path, region } of candidates) {
       const text = `${path.elevationMeters} m`, textWidth = ctx.measureText(text).width;
       const points = Array.from({ length: path.points.length / 2 }, (_, i) => t.worldToScreen(path.points[i * 2], path.points[i * 2 + 1]));
-      for (const { x, y, angle } of contourLabelStations(points)) {
+      for (const { x, y, angle } of contourLabelStations(points, 320, [Math.max(0, region[0]), Math.max(0, region[1]), Math.min(t.width, region[2]), Math.min(t.height, region[3])])) {
         if ((counts.get(path.id) ?? 0) >= 3) break;
         const radiusX = Math.abs(Math.cos(angle)) * (textWidth / 2 + 8) + Math.abs(Math.sin(angle)) * 10, radiusY = Math.abs(Math.sin(angle)) * (textWidth / 2 + 8) + Math.abs(Math.cos(angle)) * 10;
         const box: [number, number, number, number] = [x - radiusX, y - radiusY, x + radiusX, y + radiusY];
