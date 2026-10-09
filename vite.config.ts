@@ -10,16 +10,6 @@ export default defineConfig({
     strictPort: true,
     allowedHosts: ['nuclear-map.localhost', 'nuclear-map.agent.dikka.dev'],
     fs: { allow: ['..'] },
-    proxy: {
-      '/satellite/heartland': {
-        target: 'http://127.0.0.1:47833',
-        rewrite: path => path.replace(/^\/satellite\/heartland/, ''),
-      },
-      '/satellite/ignus': {
-        target: 'http://127.0.0.1:47834',
-        rewrite: path => path.replace(/^\/satellite\/ignus/, ''),
-      },
-    },
   },
   build: { outDir: '../dist/demo', emptyOutDir: true, copyPublicDir: false },
   plugins: [{

@@ -58,10 +58,16 @@
             <label class="field" id="contour-field" hidden>
               <span>Contour interval</span>
               <select id="contour-select" disabled>
+                <option value="auto" selected>Auto (zoom)</option>
+                <option value="10">10 m</option>
                 <option value="20">20 m</option>
                 <option value="50">50 m</option>
-                <option value="100" selected>100 m</option>
+                <option value="100">100 m</option>
               </select>
+            </label>
+            <label class="field" id="smoothing-field" hidden>
+              <span>Line smoothing <output id="smoothing-value">40 m</output></span>
+              <input id="smoothing-input" type="range" min="0" max="80" step="4" value="40" aria-label="Contour line smoothing" disabled>
             </label>
           </div>
         </details>
@@ -71,7 +77,7 @@
             <p>Click the map, then use arrow keys to pan, <kbd>+</kbd>/<kbd>-</kbd> to zoom and <kbd>0</kbd> to fit. Drag to pan; wheel or pinch to zoom.</p>
             <p>Builtin shows the map sprite with the tint applied. Raw shows the sprite source unmodified. Satellite and topographic views use their own colors.</p>
             <p>Coordinates are meters from the map center: X east, Z north. Grid cells are 10 km wide.</p>
-            <p>Detailed views load smaller tiles as you zoom. Topographic contour lines stay crisp, with the interval adjustable in Settings. Elevations are meters above the game's sea level.</p>
+            <p>Detailed views load pre-rendered tiles as you zoom. Topographic contours follow the extracted ground model. Auto shows finer elevation intervals when zoomed in; Settings also offers fixed intervals and line smoothing. Zero smoothing shows the unsmoothed contours. Elevations are meters above the game's sea level.</p>
           </div>
         </details>
       </div>
@@ -89,6 +95,7 @@
       <span id="engine">Starting…</span>
       <span id="coords" aria-label="Pointer position">Grid — · x — · z —</span>
       <span id="zoom">Zoom —</span>
+      <span id="interval" hidden></span>
       <span id="size">Map —</span>
     </footer>
   </div>

@@ -123,6 +123,8 @@ input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: var
 }
 .settings-body .field { justify-content: space-between; }
 .settings-body select { max-width: 9rem; }
+.settings-body input[type="range"] { width: 6rem; min-height: var(--hit); }
+.settings-body output { display: block; color: var(--muted); font-size: 11px; }
 code, kbd { font-family: Consolas, monospace; font-size: 12px; color: var(--accent); }
 
 .stage {

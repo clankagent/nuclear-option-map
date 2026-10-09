@@ -50,9 +50,59 @@ export function decodeContours(value: unknown): ContourTile {
   });
   return { bounds: v.bounds as ContourTile['bounds'], paths };
 }
+/** Display-only corner rounding. Measurements and open-path tile endpoints remain unchanged.
+ * Each rounded corner stays in the convex hull of its measured segments and
+ * within radius/2 of them. Zero preserves the exported contour coordinates.
+ */
+export function smoothContourPoints(points: Float64Array, radius: number): Float64Array {
+  if (!Number.isFinite(radius) || radius < 0 || radius > 160) throw new TypeError('Contour smoothing must be between 0 and 160 meters');
+  if (!radius || points.length < 6) return points;
+  const closed = points.length >= 8 && points[0] === points[points.length - 2] && points[1] === points[points.length - 1];
+  const count = points.length / 2 - (closed ? 1 : 0);
+  const result: number[] = closed ? [] : [points[0], points[1]];
+  for (let vertex = closed ? 0 : 1; vertex < (closed ? count : count - 1); vertex++) {
+    const i = vertex * 2, previous = ((vertex + count - 1) % count) * 2, next = ((vertex + 1) % count) * 2;
+    const x = points[i], y = points[i + 1], ax = points[previous] - x, ay = points[previous + 1] - y, bx = points[next] - x, by = points[next + 1] - y;
+    const incoming = Math.hypot(ax, ay), outgoing = Math.hypot(bx, by);
+    if (!incoming || !outgoing || (ax * bx + ay * by < 0 && Math.abs(ax * by - ay * bx) <= 1e-10 * incoming * outgoing)) { result.push(x, y); continue; }
+    const trim = Math.min(radius, incoming / 2, outgoing / 2);
+    const sx = x + ax * trim / incoming, sy = y + ay * trim / incoming, ex = x + bx * trim / outgoing, ey = y + by * trim / outgoing;
+    result.push(sx, sy);
+    for (let step = 1; step <= 6; step++) {
+      const t = step / 6, u = 1 - t;
+      result.push(u * u * sx + 2 * u * t * x + t * t * ex, u * u * sy + 2 * u * t * y + t * t * ey);
+    }
+  }
+  if (closed) result.push(result[0], result[1]);
+  else result.push(points[points.length - 2], points[points.length - 1]);
+  return new Float64Array(result);
+}
 interface Entry { tile: ContourTile; ready: number; used: number; bytes: number }
 export interface ContourTransform { width: number; height: number; scale: number; dpr?: number; worldToScreen(x: number, z: number): { x: number; y: number }; screenToWorld(x: number, y: number): { x: number; z: number } }
 export class ContourRenderer {
+  smoothingMeters = 40;
+  private smoothed = new WeakMap<ContourPath, { radius: number; points: Float64Array }>();
+  private pathBounds = new WeakMap<ContourPath, [number, number, number, number]>();
+  private intersects(path: ContourPath, visible: [number, number, number, number]) {
+    let bounds = this.pathBounds.get(path);
+    if (!bounds) {
+      bounds = [Infinity, Infinity, -Infinity, -Infinity];
+      for (let i = 0; i < path.points.length; i += 2) {
+        bounds[0] = Math.min(bounds[0], path.points[i]); bounds[1] = Math.min(bounds[1], path.points[i + 1]);
+        bounds[2] = Math.max(bounds[2], path.points[i]); bounds[3] = Math.max(bounds[3], path.points[i + 1]);
+      }
+      this.pathBounds.set(path, bounds);
+    }
+    return bounds[0] <= visible[2] && bounds[2] >= visible[0] && bounds[1] <= visible[3] && bounds[3] >= visible[1];
+  }
+  private visibleBounds(t: ContourTransform): [number, number, number, number] {
+    const a = t.screenToWorld(0, 0), b = t.screenToWorld(t.width, t.height), pad = 2 / t.scale;
+    return [Math.min(a.x, b.x) - pad, Math.min(a.z, b.z) - pad, Math.max(a.x, b.x) + pad, Math.max(a.z, b.z) + pad];
+  }
+  private drawingPoints(path: ContourPath) {
+    const cached = this.smoothed.get(path); if (cached?.radius === this.smoothingMeters) return cached.points;
+    const points = smoothContourPoints(path.points, this.smoothingMeters); this.smoothed.set(path, { radius: this.smoothingMeters, points }); return points;
+  }
   private cache = new Map<string, Entry>();
   private active = new Map<string, AbortController>();
   private queue: { key: string; z: number; x: number; y: number }[] = [];
@@ -86,7 +136,7 @@ export class ContourRenderer {
       finally { this.active.delete(key); }
     })).flat()); } catch (error) { this.destroy(); throw error; }
   }
-  private store(key: string, tile: ContourTile) { this.failed.delete(key); this.cache.set(key, { tile, ready: performance.now(), used: ++this.usage, bytes: 256 + tile.paths.reduce((sum, p) => sum + p.points.byteLength + 128 + p.id.length * 2, 0) }); }
+  private store(key: string, tile: ContourTile) { this.failed.delete(key); this.cache.set(key, { tile, ready: performance.now(), used: ++this.usage, bytes: 256 + tile.paths.reduce((sum, p) => sum + p.points.byteLength * 8 + 128 + p.id.length * 2, 0) }); }
   private scheduleRetry() {
     if (this.retryTimer !== undefined) clearTimeout(this.retryTimer); this.retryTimer = undefined;
     const pending = [...this.failed].filter(([key, f]) => this.visible.has(key) && f.attempts < 3).map(([, f]) => f.retryAt);
@@ -146,9 +196,12 @@ export class ContourRenderer {
   private index(p: ContourPath) { return p.isIndex ?? Math.abs(p.elevationMeters / (this.interval * 5) - Math.round(p.elevationMeters / (this.interval * 5))) < 1e-6; }
   private lines(ctx: CanvasRenderingContext2D, paths: ContourPath[], t: ContourTransform, alpha: number) {
     ctx.save(); ctx.globalAlpha = alpha; ctx.strokeStyle = '#967d61'; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    const visible = this.visibleBounds(t);
     for (const path of paths) {
+      if (!this.intersects(path, visible)) continue;
       ctx.lineWidth = this.index(path) ? 1.1 : .55; ctx.beginPath();
-      for (let i = 0; i < path.points.length; i += 2) { const p = t.worldToScreen(path.points[i], path.points[i + 1]); if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }
+      const points = this.drawingPoints(path);
+      for (let i = 0; i < points.length; i += 2) { const p = t.worldToScreen(points[i], points[i + 1]); if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }
       ctx.stroke();
     }
     ctx.restore();
@@ -156,9 +209,12 @@ export class ContourRenderer {
   private labels(ctx: CanvasRenderingContext2D, candidates: { path: ContourPath; region: [number, number, number, number] }[], t: ContourTransform) {
     const occupied: [number, number, number, number][] = [], counts = new Map<string, number>();
     ctx.save(); ctx.font = '10px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#80684f'; ctx.strokeStyle = '#f6f4ed'; ctx.lineWidth = 3;
+    const visible = this.visibleBounds(t);
     for (const { path, region } of candidates) {
+      if (!this.intersects(path, visible)) continue;
       const text = `${path.elevationMeters} m`, textWidth = ctx.measureText(text).width;
-      const points = Array.from({ length: path.points.length / 2 }, (_, i) => t.worldToScreen(path.points[i * 2], path.points[i * 2 + 1]));
+      const geometry = this.drawingPoints(path);
+      const points = Array.from({ length: geometry.length / 2 }, (_, i) => t.worldToScreen(geometry[i * 2], geometry[i * 2 + 1]));
       for (const { x, y, angle } of contourLabelStations(points, 320, [Math.max(0, region[0]), Math.max(0, region[1]), Math.min(t.width, region[2]), Math.min(t.height, region[3])])) {
         if ((counts.get(path.id) ?? 0) >= 3) break;
         const radiusX = Math.abs(Math.cos(angle)) * (textWidth / 2 + 8) + Math.abs(Math.sin(angle)) * 10, radiusY = Math.abs(Math.sin(angle)) * (textWidth / 2 + 8) + Math.abs(Math.cos(angle)) * 10;

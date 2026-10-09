@@ -238,18 +238,29 @@ def simplify_path(points,tolerance):
     return [points[i]for i in sorted(keep)]
 
 
+def write_contour_json(path,result):
+    path.parent.mkdir(parents=True,exist_ok=True);temporary=path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(result,separators=(",",":")))
+    # Windows readers may briefly hold a sharing lock while a tile is requested.
+    for attempt in range(8):
+        try:temporary.replace(path);return
+        except PermissionError:
+            if attempt==7:raise
+            time.sleep(min(.5,.05*2**attempt))
+
+
 def export_contours(vertices,faces,classes,ids,bounds,interval,pixel_size,path,map_id,level,x,y):
     segments=tin_contours(vertices,faces,classes,ids,float(interval),np.asarray(bounds,dtype=np.float64))
     paths=[]
     for elevation,points in stitch_contours(segments,precision=1):
         if len(points)<2:continue
-        simplified=simplify_path(points,pixel_size*.5)
+        simplified=simplify_path(points,pixel_size*(.5 if level<3 else .1))
         # Preserve tile clipping endpoints; only remove screen-invisible bends.
         payload=f"{map_id}:{interval}:{level}:{x}:{y}:{elevation}:{points[0]}:{points[-1]}".encode()
         paths.append({"id":hashlib.blake2b(payload,digest_size=8).hexdigest(),"elevationMeters":float(elevation),
                       "isIndex":round(elevation/interval)%5==0,"points":simplified})
     result={"schemaVersion":1,"bounds":list(bounds),"paths":paths}
-    path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(result,separators=(",",":")))
+    write_contour_json(path,result)
     return result
 
 
@@ -345,7 +356,11 @@ def render_tile(vertices,faces,classes,pointers,ids,x,y,columns,rows,width,depth
 
 
 def run(args):
-    info=cache_geometry(args.scene,args.map,args.cache,args.material_report)
+    if args.contours_only:
+        info=json.loads((args.cache/"geometry.json").read_text())
+        if info.get("schemaVersion")!=4 or info.get("map")!=args.map or info.get("sourceSceneSHA256")!=hashlib.sha256(args.scene.read_bytes()).hexdigest():
+            raise ValueError("Contours-only requires a matching existing native geometry cache")
+    else:info=cache_geometry(args.scene,args.map,args.cache,args.material_report)
     vertices=np.load(args.cache/"vertices.npy",mmap_mode="r")
     faces=np.load(args.cache/"faces.npy",mmap_mode="r")
     classes=np.load(args.cache/"classes.npy",mmap_mode="r")
@@ -362,12 +377,41 @@ def run(args):
         cell=y*columns+x;candidate=ids[pointers[cell]:pointers[cell+1]]
         side=width/columns
         bounds=(-width*.5+x*side,depth*.5-(y+1)*side,-width*.5+(x+1)*side,depth*.5-y*side)
+        # Every requested interval is a multiple of the common measured isolines.
+        # Intersect/stitch once, then select paths; elevations and geometry agree.
+        base=math.gcd(*intervals);base_target=args.output/"contours"/str(base)/str(level)/str(x)/f"{y}.json"
+        measured=None
+        if (getattr(args,"reuse_base_contours",False) or args.reuse_contours) and base_target.exists():
+            try:
+                measured=json.loads(base_target.read_text())
+                if measured.get("schemaVersion")!=1 or measured.get("bounds")!=list(bounds) or not isinstance(measured.get("paths"),list):measured=None
+            except (ValueError,OSError):measured=None
+        if measured is None:measured=export_contours(vertices,faces,classes,candidate,bounds,base,width/w,base_target,args.map,level,x,y)
         output={}
         for interval in intervals:
             target=args.output/"contours"/str(interval)/str(level)/str(x)/f"{y}.json"
-            if args.reuse_contours and target.exists():output[interval]=json.loads(target.read_text())
-            else:output[interval]=export_contours(vertices,faces,classes,candidate,bounds,interval,width/w,target,args.map,level,x,y)
+            if args.reuse_contours and target.exists():output[interval]=json.loads(target.read_text());continue
+            result={"schemaVersion":1,"bounds":list(bounds),"paths":[{**p,"isIndex":round(p["elevationMeters"]/interval)%5==0}for p in measured["paths"]if abs(p["elevationMeters"]/interval-round(p["elevationMeters"]/interval))<1e-8]}
+            if interval!=base:write_contour_json(target,result)
+            output[interval]=result
         return output
+    if args.contours_only:
+        existing_path=args.output/"tiles.json"
+        if not existing_path.exists():raise ValueError("Contours-only requires an existing terrain pyramid")
+        existing=json.loads(existing_path.read_text())
+        contour_levels=[]
+        for raster in existing["tiles"]["levels"]:
+            level=raster["level"]
+            if level>args.max_level:continue
+            started=time.monotonic();columns,rows=raster["columns"],raster["rows"]
+            pointers,ids=tile_index(vertices,faces,width,depth,columns,rows)
+            for y in range(rows):
+                for x in range(columns):vectors(level,x,y,columns,rows,raster["width"],raster["height"],pointers,ids)
+            contour_levels.append({"level":level,"columns":columns,"rows":rows,"urlTemplate":f"terrain/{args.map}/contours/{{interval}}/{level}/{{x}}/{{y}}.json"})
+            print(f"Contours level {level}: {columns*rows} tiles in {time.monotonic()-started:.1f}s",flush=True)
+        existing["contours"]={"intervals":intervals,"levels":contour_levels}
+        temporary=args.output/"tiles.json.tmp";temporary.write_text(json.dumps(existing,indent=2));temporary.replace(existing_path)
+        return
     previous_path=args.output/"tiles.json"
     previous=json.loads(previous_path.read_text())if previous_path.exists()else None
     for level in range(0 if args.preview_only else args.max_level+1):
@@ -446,20 +490,22 @@ if __name__=="__main__":
     parser.add_argument("--output",required=True,type=Path)
     parser.add_argument("--max-level",default=6,type=int)
     parser.add_argument("--contour",default=100,type=float)
-    parser.add_argument("--intervals",default="20,50,100")
+    parser.add_argument("--intervals",default="10,20,50,100")
     parser.add_argument("--preview-tile")
     parser.add_argument("--preview-only",action="store_true",help="Generate only the requested private close-up without changing completed pyramid metadata")
     parser.add_argument("--land-mask",type=Path)
     parser.add_argument("--material-report",type=Path)
     parser.add_argument("--reuse-contours",action="store_true")
+    parser.add_argument("--reuse-base-contours",action="store_true",help="Resume a compatible measured base-interval contour build; regenerate derived intervals")
+    parser.add_argument("--contours-only",action="store_true",help="Regenerate contour vectors against existing raster levels; preserve raster assets")
     args=parser.parse_args()
     if not 0<=args.max_level<=7 or not math.isfinite(args.contour)or args.contour<=0:
         parser.error("Max level must be0..7 and contour must be finite positive")
     try:
         intervals=[int(v)for v in args.intervals.split(",")]
     except ValueError:parser.error("Intervals must be comma-separated positive integers")
-    if not intervals or any(v not in(20,50,100)for v in intervals)or len(set(intervals))!=len(intervals):
-        parser.error("Intervals must be distinct values from20,50,100")
+    if not intervals or any(v not in(10,20,50,100)for v in intervals)or len(set(intervals))!=len(intervals):
+        parser.error("Intervals must be distinct values from10,20,50,100")
     if args.preview_tile:
         try:
             preview=tuple(int(v)for v in args.preview_tile.split("/"))

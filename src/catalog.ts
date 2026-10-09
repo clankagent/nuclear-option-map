@@ -1,6 +1,6 @@
 export interface PyramidLevel { level: number; width: number; height: number; columns: number; rows: number; urlTemplate: string }
 export interface TilePyramid { tileSize: number; gutter?: number; levels: PyramidLevel[] }
-export type ContourInterval = 20 | 50 | 100;
+export type ContourInterval = 10 | 20 | 50 | 100;
 export interface ContourPyramid { intervals: ContourInterval[]; levels: { level: number; columns: number; rows: number; urlTemplate: string }[] }
 export interface MapDefinition {
   id: string;
@@ -66,7 +66,7 @@ export function validateMap(value: unknown): MapDefinition {
   let contours: ContourPyramid | undefined;
   if (m.contours !== undefined) {
     const c = m.contours;
-    if (!c || !Array.isArray(c.intervals) || !c.intervals.length || c.intervals.some(i => ![20, 50, 100].includes(i)) || new Set(c.intervals).size !== c.intervals.length || !Array.isArray(c.levels) || !c.levels.length || c.levels.length > 12) throw new TypeError('Invalid contour pyramid');
+    if (!c || !Array.isArray(c.intervals) || !c.intervals.length || c.intervals.some(i => ![10, 20, 50, 100].includes(i)) || new Set(c.intervals).size !== c.intervals.length || !Array.isArray(c.levels) || !c.levels.length || c.levels.length > 12) throw new TypeError('Invalid contour pyramid');
     const levels = c.levels.map((l, i) => {
       if (!l || l.level !== i || !Number.isSafeInteger(l.columns) || !Number.isSafeInteger(l.rows) || l.columns < 1 || l.rows < 1 || l.columns > 8192 || l.rows > 8192 || (i > 0 && (l.columns !== c.levels[i - 1].columns * 2 || l.rows !== c.levels[i - 1].rows * 2)) || typeof l.urlTemplate !== 'string' || !['{interval}', '{x}', '{y}'].every(p => l.urlTemplate.includes(p))) throw new TypeError('Invalid contour level');
       return { ...l };

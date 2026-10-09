@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vite-plus/test';
-import { ContourRenderer, contourLabelStations, decodeContours } from '../../src/contours';
+import { ContourRenderer, contourLabelStations, decodeContours, smoothContourPoints } from '../../src/contours';
 const data = { schemaVersion: 1, bounds: [-500, -500, 500, 500], paths: [{ id: 'height100', elevationMeters: 100, points: [[-400, 0], [0, 0], [400, 0]] }] };
 afterEach(() => vi.unstubAllGlobals());
 it('decodes measured world coordinates to typed arrays without inventing elevations', () => {
@@ -46,4 +46,39 @@ it('aborts sibling root loads immediately when preparing one root fails', async 
   vi.stubGlobal('fetch', (url: string, options: { signal: AbortSignal }) => { signals.push(options.signal); return url.endsWith('/0/0') ? Promise.reject(new Error('missing root')) : new Promise(() => {}); });
   const renderer = new ContourRenderer({ intervals: [20], levels: [{ level: 0, columns: 2, rows: 1, urlTemplate: 'https://test/{interval}/{x}/{y}' }] }, 20, 1000, 1000, vi.fn());
   await expect(renderer.prepare()).rejects.toThrow('missing root'); expect(signals[1].aborted).toBe(true);
+});
+
+it('rounds measured corners locally while preserving raw vertices and endpoints', () => {
+  const raw = new Float64Array([-100, 0, 0, 0, 0, 100]);
+  expect(smoothContourPoints(raw, 0)).toBe(raw);
+  const rounded = smoothContourPoints(raw, 24);
+  expect([...raw]).toEqual([-100, 0, 0, 0, 0, 100]);
+  expect([...rounded.slice(0, 2)]).toEqual([-100, 0]);
+  expect([...rounded.slice(-2)]).toEqual([0, 100]);
+  for (let i = 0; i < rounded.length; i += 2) {
+    expect(rounded[i]).toBeLessThanOrEqual(0); expect(rounded[i + 1]).toBeGreaterThanOrEqual(0);
+    expect(Math.min(Math.abs(rounded[i]), Math.abs(rounded[i + 1]))).toBeLessThanOrEqual(12);
+  }
+  expect(() => smoothContourPoints(raw, NaN)).toThrow('smoothing');
+});
+
+it('rounds the closure of a complete contour ring without a seam kink', () => {
+  const ring = new Float64Array([0, 0, 100, 0, 100, 100, 0, 100, 0, 0]);
+  const rounded = smoothContourPoints(ring, 20);
+  expect([...rounded.slice(0, 2)]).toEqual([0, 20]);
+  expect([...rounded.slice(-2)]).toEqual([0, 20]);
+  for (let i = 0; i < rounded.length; i += 2) {
+    expect(rounded[i]).toBeGreaterThanOrEqual(0); expect(rounded[i]).toBeLessThanOrEqual(100);
+    expect(rounded[i + 1]).toBeGreaterThanOrEqual(0); expect(rounded[i + 1]).toBeLessThanOrEqual(100);
+  }
+});
+
+it('culls offscreen root fallback paths before issuing strokes at close zoom', async () => {
+  vi.stubGlobal('fetch', async () => ({ ok: true, json: async () => ({ ...data, paths: [...data.paths, { id: 'offscreen', elevationMeters: 120, points: [[300, 300], [350, 350], [400, 300]] }] }) }));
+  vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1)); vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  const renderer = new ContourRenderer({ intervals: [20], levels: [{ level: 0, columns: 1, rows: 1, urlTemplate: 'https://test/{interval}/{x}/{y}' }] }, 20, 1000, 1000, vi.fn()); await renderer.prepare();
+  const context = { save() {}, restore() {}, beginPath() {}, rect() {}, clip() {}, moveTo() {}, lineTo() {}, stroke: vi.fn(), measureText: () => ({ width: 32 }), translate() {}, rotate() {}, strokeText() {}, fillText() {}, drawImage() {}, setTransform() {}, clearRect() {} };
+  vi.stubGlobal('document', { createElement: () => ({ width: 0, height: 0, getContext: () => context }) });
+  renderer.draw(context as unknown as CanvasRenderingContext2D, { width: 100, height: 100, scale: 1, worldToScreen: (x, z) => ({ x: x + 50, y: 50 - z }), screenToWorld: (x, y) => ({ x: x - 50, z: 50 - y }) });
+  expect(context.stroke).toHaveBeenCalledTimes(1); renderer.destroy();
 });

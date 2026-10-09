@@ -5,10 +5,13 @@
 """Analytic geometry checks independent of supplied game assets."""
 import unittest
 import tempfile
+import json
+import hashlib
+from types import SimpleNamespace
 from pathlib import Path
 import numpy as np
 from raster_terrain import rasterize, local_matrix
-from build_terrain_tiles import tin_contours,stitch_contours,simplify_path,tile_index,raster_tile,obj_face_slots
+from build_terrain_tiles import tin_contours,stitch_contours,simplify_path,tile_index,raster_tile,obj_face_slots,run
 
 
 class RasterTests(unittest.TestCase):
@@ -53,6 +56,32 @@ class RasterTests(unittest.TestCase):
         self.assertEqual(len(simplified),2)
         np.testing.assert_allclose(np.sum(np.array(simplified),axis=1),[1,1])
         self.assertTrue(all(.2<=value<=.8 for point in simplified for value in point))
+
+    def test_contours_only_preserves_raster_and_uses_matching_measured_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);cache=root/"cache";output=root/"output";cache.mkdir();output.mkdir()
+            scene=root/"scene.json";scene.write_text('{}')
+            manifest=root/"manifest.json";manifest.write_text(json.dumps({"maps":[{"id":"test","widthMeters":512.,"heightMeters":512.}]}))
+            (cache/"geometry.json").write_text(json.dumps({"schemaVersion":4,"map":"test","sourceSceneSHA256":hashlib.sha256(scene.read_bytes()).hexdigest()}))
+            np.save(cache/"vertices.npy",np.array([[-256.,0.,-256.],[256.,100.,-256.],[256.,200.,256.]],dtype=np.float32))
+            np.save(cache/"faces.npy",np.array([[0,1,2]],dtype=np.int32));np.save(cache/"classes.npy",np.array([1],dtype=np.uint8))
+            contract={"image":"sentinel.webp","tiles":{"levels":[{"level":0,"width":512,"height":512,"columns":1,"rows":1}]},"contours":{"intervals":[100],"levels":[]}}
+            (output/"tiles.json").write_text(json.dumps(contract));raster=output/"sentinel.webp";raster.write_bytes(b'unchanged')
+            args=SimpleNamespace(scene=scene,map="test",cache=cache,output=output,manifest=manifest,contours_only=True,intervals="10,20,50,100",land_mask=None,reuse_contours=False,max_level=0)
+            run(args)
+            updated=json.loads((output/"tiles.json").read_text());self.assertEqual(updated["tiles"],contract["tiles"]);self.assertEqual(raster.read_bytes(),b'unchanged')
+            self.assertEqual(updated["contours"]["intervals"],[10,20,50,100])
+            measured=json.loads((output/"contours/10/0/0/0.json").read_text())
+            self.assertTrue(any(p["elevationMeters"]==10 for p in measured["paths"]))
+            for interval in (20,50,100):
+                derived=json.loads((output/f"contours/{interval}/0/0/0.json").read_text())
+                for contour in derived["paths"]:
+                    self.assertEqual(contour["elevationMeters"]%interval,0)
+                    self.assertEqual(contour["isIndex"],round(contour["elevationMeters"]/interval)%5==0)
+                    for x,z in contour["points"]:
+                        self.assertAlmostEqual((x+z+512)*100/512,contour["elevationMeters"],delta=.05)
+            scene.write_text('{"changed":true}')
+            with self.assertRaisesRegex(ValueError,"matching existing native geometry"):run(args)
 
     def test_tile_footprints_do_not_invent_ground_under_roof(self):
         vertices=np.array([[-1.,10.,-1.],[1.,10.,-1.],[-1.,10.,1.]],dtype=np.float32)

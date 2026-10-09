@@ -6,16 +6,20 @@ import { ContourRenderer } from './contours';
 
 export type MapMode = 'builtin' | 'raw';
 export type GridLabels = 'edges' | 'cells' | 'none';
+export type ContourPreference = ContourInterval | 'auto';
 export interface ViewState {
   map: MapDefinition | null; mode: MapMode; grid: boolean; gridLabels: GridLabels; tint: string;
   zoom: number; scale: number; centerX: number; centerZ: number; width: number; height: number;
   tileStats?: TileStats;
   contourInterval?: ContourInterval;
+  contourPreference: ContourPreference;
+  contourSmoothingMeters: number;
 }
 export interface MapPointer { x: number; z: number; insideMap: boolean; gridReference: string | null }
 export interface MapViewerOptions {
   map?: MapDefinition; mode?: MapMode; grid?: boolean; gridLabels?: GridLabels; tint?: string;
-  contourInterval?: ContourInterval;
+  contourInterval?: ContourPreference;
+  contourSmoothingMeters?: number;
   onViewChange?: (state: ViewState) => void;
   onPointerMove?: (position: MapPointer | null) => void;
 }
@@ -23,9 +27,17 @@ let wasmReady: Promise<unknown> | undefined;
 const constructionToken = Symbol('MapViewer factory');
 /** Preserve a requested interval where available; fallback does not replace that preference. */
 export function chooseContourInterval(available: ContourInterval[], preferred: ContourInterval): ContourInterval {
-  if (![20, 50, 100].includes(preferred)) throw new TypeError('Contour interval must be 20, 50, or 100 meters');
+  if (![10, 20, 50, 100].includes(preferred)) throw new TypeError('Contour interval must be 10, 20, 50, or 100 meters');
   if (!available.length) throw new TypeError('No contour intervals available');
   return available.includes(preferred) ? preferred : available.includes(100) ? 100 : available[0];
+}
+/** Zoom changes the displayed spacing, while every contour retains a fixed measured elevation. */
+export function adaptiveContourInterval(available: ContourInterval[], scale: number): ContourInterval {
+  if (!Number.isFinite(scale) || scale <= 0 || !available.length) throw new TypeError('Contour scale and intervals are required');
+  const metersPerPixel = 1 / scale;
+  const target = metersPerPixel > 80 ? 100 : metersPerPixel > 25 ? 50 : metersPerPixel > 8 ? 20 : 10;
+  const sorted = [...available].sort((a, b) => a - b);
+  return sorted.find(interval => interval >= target) ?? sorted[sorted.length - 1];
 }
 export async function createMapViewer(canvas: HTMLCanvasElement, options: MapViewerOptions = {}): Promise<MapViewer> {
   return MapViewer.create(canvas, options);
@@ -42,7 +54,9 @@ export class MapViewer {
   private contours: ContourRenderer | null = null;
   private contourGeneration = 0;
   private contourPending: ContourRenderer | null = null;
-  private preferredContourInterval: ContourInterval;
+  private preferredContourInterval: ContourPreference;
+  private contourPreferenceGeneration = 0;
+  private contourSmoothingMeters: number;
   private preparingContours = new Set<ContourRenderer>();
   private mode: MapMode;
   private grid: boolean;
@@ -76,8 +90,10 @@ export class MapViewer {
     this.ctx = ctx;
     this.mode = options.mode ?? 'builtin';
     this.grid = options.grid ?? true;
-    this.preferredContourInterval = options.contourInterval ?? 100;
-    if (![20, 50, 100].includes(this.preferredContourInterval)) throw new TypeError('Contour interval must be 20, 50, or 100 meters');
+    this.preferredContourInterval = options.contourInterval ?? 'auto';
+    if (this.preferredContourInterval !== 'auto' && ![10, 20, 50, 100].includes(this.preferredContourInterval)) throw new TypeError('Contour interval must be auto, 10, 20, 50, or 100 meters');
+    this.contourSmoothingMeters = options.contourSmoothingMeters ?? 40;
+    if (!Number.isFinite(this.contourSmoothingMeters) || this.contourSmoothingMeters < 0 || this.contourSmoothingMeters > 160) throw new TypeError('Contour smoothing must be between 0 and 160 meters');
     this.gridLabels = options.gridLabels ?? 'edges';
     if (!['edges', 'cells', 'none'].includes(this.gridLabels)) throw new TypeError('Unknown grid label mode');
     this.tint = options.tint ?? '#819987';
@@ -138,7 +154,7 @@ export class MapViewer {
   private assertAlive() { if (this.disposed) throw new Error('MapViewer has been destroyed'); }
   private local(e: MouseEvent) { const r = this.canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
   get state(): ViewState {
-    return { map: this.map ? validateMap(this.map) : null, mode: this.mode, grid: this.grid, gridLabels: this.gridLabels, tint: this.tint, zoom: this.viewport.zoom(), scale: this.viewport.scale(), centerX: this.viewport.centerX(), centerZ: this.viewport.centerZ(), width: this.width, height: this.height, ...(this.pyramid ? { tileStats: this.pyramid.stats } : {}), ...(this.contours ? { contourInterval: this.contours.interval } : {}) };
+    return { map: this.map ? validateMap(this.map) : null, mode: this.mode, grid: this.grid, gridLabels: this.gridLabels, tint: this.tint, zoom: this.viewport.zoom(), scale: this.viewport.scale(), centerX: this.viewport.centerX(), centerZ: this.viewport.centerZ(), width: this.width, height: this.height, contourPreference: this.preferredContourInterval, contourSmoothingMeters: this.contourSmoothingMeters, ...(this.pyramid ? { tileStats: this.pyramid.stats } : {}), ...(this.contours ? { contourInterval: this.contours.interval } : {}) };
   }
   worldToScreen(x: number, z: number) { this.assertAlive(); const p = this.viewport.worldToScreen(x, z); return { x: p[0], y: p[1] }; }
   screenToWorld(x: number, y: number) { this.assertAlive(); const p = this.viewport.screenToWorld(x, y); return { x: p[0], z: p[1] }; }
@@ -151,7 +167,10 @@ export class MapViewer {
     const tint = this.customTint ? this.tint : map.tint ?? '#819987';
     let contours: ContourRenderer | null = null;
     if (map.contours) {
-      contours = new ContourRenderer(map.contours, chooseContourInterval(map.contours.intervals, this.preferredContourInterval), map.widthMeters, map.heightMeters, () => { if (!this.disposed) this.draw(); });
+      const scale = options.preserveView && this.map?.widthMeters === map.widthMeters && this.map?.heightMeters === map.heightMeters ? this.viewport.scale() : Math.min(this.width / map.widthMeters, this.height / map.heightMeters);
+      const interval = this.preferredContourInterval === 'auto' ? adaptiveContourInterval(map.contours.intervals, scale) : chooseContourInterval(map.contours.intervals, this.preferredContourInterval);
+      contours = new ContourRenderer(map.contours, interval, map.widthMeters, map.heightMeters, () => { if (!this.disposed) this.draw(); });
+      contours.smoothingMeters = this.contourSmoothingMeters;
       this.preparingContours.add(contours);
       try { await contours.prepare(); } catch (error) { contours.destroy(); throw error; }
       finally { this.preparingContours.delete(contours); }
@@ -180,16 +199,46 @@ export class MapViewer {
   fit() { this.assertAlive(); this.viewport.fit(); this.changed(); }
   setGrid(value: boolean) { this.assertAlive(); this.grid = value; this.changed(); }
   setGridLabels(value: GridLabels) { this.assertAlive(); if (!['edges', 'cells', 'none'].includes(value)) throw new TypeError('Unknown grid label mode'); this.gridLabels = value; this.changed(); }
-  async setContourInterval(interval: ContourInterval): Promise<void> {
+  async setContourInterval(preference: ContourPreference): Promise<void> {
+    this.assertAlive();
+    if (!this.map?.contours || (preference !== 'auto' && !this.map.contours.intervals.includes(preference))) throw new TypeError('Contour interval is unavailable for this map');
+    const interval = preference === 'auto' ? adaptiveContourInterval(this.map.contours.intervals, this.viewport.scale()) : preference;
+    const previous = this.preferredContourInterval;
+    const intent = ++this.contourPreferenceGeneration, mapGeneration = this.generation;
+    this.preferredContourInterval = preference;
+    try { await this.replaceContourInterval(interval); }
+    catch (error) {
+      if (this.disposed || intent !== this.contourPreferenceGeneration || mapGeneration !== this.generation) return;
+      this.preferredContourInterval = previous; throw error;
+    }
+    if (this.disposed || intent !== this.contourPreferenceGeneration || mapGeneration !== this.generation) return;
+    this.changed();
+  }
+  setContourSmoothing(meters: number) {
+    this.assertAlive();
+    if (!Number.isFinite(meters) || meters < 0 || meters > 160) throw new TypeError('Contour smoothing must be between 0 and 160 meters');
+    this.contourSmoothingMeters = meters;
+    if (this.contours) this.contours.smoothingMeters = meters;
+    if (this.contourPending) this.contourPending.smoothingMeters = meters;
+    this.changed();
+  }
+  private async replaceContourInterval(interval: ContourInterval): Promise<void> {
     this.assertAlive();
     if (!this.map?.contours || !this.map.contours.intervals.includes(interval)) throw new TypeError('Contour interval is unavailable for this map');
     if (this.contours?.interval === interval && !this.contourPending) return;
     const token = ++this.contourGeneration; this.contourPending?.destroy();
     const next = new ContourRenderer(this.map.contours, interval, this.map.widthMeters, this.map.heightMeters, () => { if (!this.disposed) this.draw(); }); this.contourPending = next;
+    next.smoothingMeters = this.contourSmoothingMeters;
     try { await next.prepare(); }
-    catch (error) { next.destroy(); if (token === this.contourGeneration) this.contourPending = null; throw error; }
+    catch (error) {
+      next.destroy();
+      // Zoom adaptation or a newer request can cancel this prepare. Its failure
+      // belongs to the obsolete request, not the current interval preference.
+      if (this.disposed || token !== this.contourGeneration) return;
+      this.contourPending = null; throw error;
+    }
     if (this.disposed || token !== this.contourGeneration) { next.destroy(); return; }
-    this.contours?.destroy(); this.contours = next; this.contourPending = null; this.preferredContourInterval = interval; this.changed();
+    this.contours?.destroy(); this.contours = next; this.contourPending = null; this.draw(); this.options.onViewChange?.(this.state);
   }
   setMode(value: MapMode) { this.assertAlive(); if (value !== 'builtin' && value !== 'raw') throw new TypeError('Unknown map mode'); if (value === 'builtin' && this.source && !this.tinted) this.tinted = tintRaster(this.source, this.tint); this.mode = value; this.resetPyramid(); this.changed(); }
   setTint(value: string) { this.assertAlive(); if (!validTint(value)) throw new TypeError('Tint must be #RRGGBB'); const tinted = this.source && this.mode === 'builtin' ? tintRaster(this.source, value) : null; disposeRaster(this.tinted); this.tint = value; this.customTint = true; this.tinted = tinted; this.resetPyramid(); this.changed(); }
@@ -215,7 +264,16 @@ export class MapViewer {
     this.canvas.width = Math.round(this.width * dpr); this.canvas.height = Math.round(this.height * dpr);
     this.viewport.resize(this.width, this.height); if (notify) this.changed(); else this.draw();
   }
-  private changed() { this.draw(); this.options.onViewChange?.(this.state); }
+  private changed() {
+    this.draw(); this.options.onViewChange?.(this.state);
+    if (this.preferredContourInterval === 'auto' && this.map?.contours && this.contours) {
+      const interval = adaptiveContourInterval(this.map.contours.intervals, this.viewport.scale());
+      if (this.contourPending && this.contourPending.interval !== interval) {
+        this.contourGeneration++; this.contourPending.destroy(); this.contourPending = null;
+      }
+      if (this.contours.interval !== interval && this.contourPending?.interval !== interval) void this.replaceContourInterval(interval).catch(() => { /* retain measured fallback coverage on a failed request */ });
+    }
+  }
   private draw() {
     const ctx = this.ctx; ctx.setTransform(this.canvas.width / this.width, 0, 0, this.canvas.height / this.height, 0, 0);
     ctx.fillStyle = '#111a1a'; ctx.fillRect(0, 0, this.width, this.height);
