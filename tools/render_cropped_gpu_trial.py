@@ -17,7 +17,7 @@ import os
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from render_safety import (configure_cropped_gpu_trial,
                            lower_process_priority, render_slot, scene_evidence,
-                           validate_cropped_gpu_trial, cuda_queue_plan)
+                           validate_cropped_gpu_trial, cuda_queue_plan, comparison_subset)
 
 
 def inspect_scene(bpy, manifest):
@@ -102,10 +102,13 @@ def main(argv):
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--edge", type=int, default=256)
     parser.add_argument("--samples", type=int, default=1)
+    parser.add_argument("--sample-offset", type=int)
+    parser.add_argument("--linear-exr", action="store_true")
     parser.add_argument("--cpu-control", action="store_true")
     parser.add_argument("--queue-info-only", type=Path)
     parser.add_argument("--queue-states", type=int, choices=(1024,8192), default=1024)
     args = parser.parse_args(argv)
+    subset = comparison_subset(args.sample_offset, args.samples) if args.sample_offset is not None else None
     source = Path(bpy.data.filepath).resolve()
     output = args.output.resolve()
     if output.exists():
@@ -143,11 +146,13 @@ def main(argv):
         parser.error("Camera does not match cropped scene footprint")
     scene.cycles.seed = 0
     scene.render.filter_size = 1.0
-    scene.render.image_settings.file_format = "PNG"
+    scene.render.image_settings.file_format = "OPEN_EXR" if args.linear_exr else "PNG"
     scene.render.image_settings.color_mode = "RGB"
-    scene.render.image_settings.color_depth = "8"
+    scene.render.image_settings.color_depth = "32" if args.linear_exr else "8"
+    scene.render.image_settings.exr_codec = "ZIP"
     output.mkdir(parents=True)
-    scene.render.filepath = str(output / "raw.png")
+    raw_output = output / ("raw.exr" if args.linear_exr else "raw.png")
+    scene.render.filepath = str(raw_output)
     # Match the source overhead convention, including north-up output.
     scene.use_nodes = True
     scene.node_tree.nodes.clear()
@@ -162,6 +167,14 @@ def main(argv):
     with render_slot():
         lower_process_priority()
         planning = configure_cropped_gpu_trial(scene, inventory, bpy.data.images, samples=args.samples)
+        scene.cycles.use_sample_subset = subset is not None
+        if subset:
+            # The global ceiling selects the same sequence; only the bounded
+            # subset executes in this invocation.
+            scene.cycles.samples = subset["sampleSequenceTotal"]
+            scene.cycles.sample_offset = subset["sampleOffset"]
+            scene.cycles.sample_subset_length = subset["sampleSubsetLength"]
+            planning.update(subset)
         selected = []
         if args.cpu_control:
             scene.cycles.device = "CPU"
@@ -216,8 +229,9 @@ def main(argv):
         bpy.ops.render.render(write_still=True)
         elapsed = time.monotonic() - started
         proof = {**settings, "seconds": elapsed,
-                 "outputBytes": (output / "raw.png").stat().st_size,
-                 "outputSha256": hashlib.sha256((output / "raw.png").read_bytes()).hexdigest()}
+                 "outputPath": str(raw_output),
+                 "outputBytes": raw_output.stat().st_size,
+                 "outputSha256": hashlib.sha256(raw_output.read_bytes()).hexdigest()}
         (output / "proof.json").write_text(json.dumps(proof, indent=2))
         print("CROPPED_TRIAL_COMPLETE", json.dumps(proof), flush=True)
 

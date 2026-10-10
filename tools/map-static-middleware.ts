@@ -10,6 +10,7 @@ export function mapRasterCacheControl(rawUrl: string): string | undefined {
 }
 
 const mimeTypes: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
   '.webp': 'image/webp', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
   '.gif': 'image/gif', '.svg': 'image/svg+xml', '.avif': 'image/avif',
   '.json': 'application/json', '.bin': 'application/octet-stream', '.wasm': 'application/wasm',

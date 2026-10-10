@@ -200,6 +200,15 @@ def configure_cropped_gpu_trial(scene, inventory, images, *, samples=1):
     return evidence
 
 
+def comparison_subset(offset, count, total=128):
+    """An exact contiguous sample subset; each GPU invocation remains <=16."""
+    if any(not isinstance(v, int) or isinstance(v, bool) for v in (offset, count, total)):
+        raise ValueError("Sample subset values must be integers")
+    if not 1 <= total <= 128 or not 1 <= count <= 16 or not 0 <= offset < total or offset + count > total:
+        raise ValueError("Comparison requires total<=128 and a nonempty <=16 sample subset within total")
+    return {"sampleOffset": offset, "sampleSubsetLength": count, "sampleSequenceTotal": total}
+
+
 def scene_evidence(scene):
     """Read configured execution settings for receipts; never probes hardware."""
     return {

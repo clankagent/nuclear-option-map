@@ -46,6 +46,10 @@ it('serves newly generated map assets directly and confines lookups to visible m
     expect(catalog.headers['content-type']).toBe('application/json');
     expect(catalog.headers['cache-control']).toBe('no-cache');
     expect(catalog.body.toString()).toBe('{"maps":[]}');
+    await writeFile(join(maps, 'comparison.html'), '<!doctype html><title>Comparison</title>');
+    const comparison = await get('/maps/comparison.html');
+    expect(comparison.headers['content-type']).toBe('text/html; charset=utf-8');
+    expect(comparison.body.toString()).toContain('<title>Comparison</title>');
     const outside = join(scratch, 'outside');
     await mkdir(outside);
     await writeFile(join(outside, 'secret.webp'), bytes);
