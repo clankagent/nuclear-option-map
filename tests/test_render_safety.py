@@ -10,6 +10,7 @@ import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace as Obj
+from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location("render_safety", Path(__file__).parents[1] / "tools/render_safety.py")
 safety = importlib.util.module_from_spec(SPEC)
@@ -92,6 +93,57 @@ class RenderSafetyTests(unittest.TestCase):
                        {"device": "gpu", "samples": 128}):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 safety.configure_scene(scene(), quality_cpu=True, **kwargs)
+
+    def test_cropped_trial_requires_physical_inputs_and_queue_bound(self):
+        inventory = {"physicallyCropped": True, "triangles": 20_000,
+                     "vertices": 60_000, "loops": 60_000, "attributeBytesConservative": 1_000_000,
+                     "shaderNodes": 200, "unsupported": []}
+        with patch.dict(os.environ, {"CYCLES_CONCURRENT_STATES_FACTOR": safety.GPU_TRIAL_STATES_FACTOR}):
+            evidence = safety.validate_cropped_gpu_trial(inventory, [image(128, 128)], 256, 256, 1)
+            self.assertEqual(evidence["maxPrimaryPaths"], 65_536)
+            self.assertFalse(evidence["hardDeviceMemoryCap"])
+            self.assertFalse(evidence["hardGpuDeadline"])
+            for update in ({"physicallyCropped": False}, {"triangles": 50_001},
+                           {"vertices": 150_001}, {"loops": 150_001},
+                           {"attributeBytesConservative": 32 * 1024 * 1024 + 1},
+                           {"unsupported": ["volume"]}, {"shaderNodes": 1025}):
+                with self.subTest(update=update), self.assertRaises(ValueError):
+                    safety.validate_cropped_gpu_trial({**inventory, **update}, [], 256, 256, 1)
+            for dimensions in ((257, 256, 1), (256, 256, 17), (True, 256, 1)):
+                with self.subTest(dimensions=dimensions), self.assertRaises(ValueError):
+                    safety.validate_cropped_gpu_trial(inventory, [], *dimensions)
+            with self.assertRaisesRegex(ValueError, "32 MiB"):
+                safety.validate_cropped_gpu_trial(inventory, [image(1024, 1024), image(1024, 1024)], 256, 256, 1)
+            with self.assertRaisesRegex(ValueError, "1024 pixels"):
+                safety.validate_cropped_gpu_trial(inventory, [image(2048, 128)], 256, 256, 1)
+        with patch.dict(os.environ, {"CYCLES_CONCURRENT_STATES_FACTOR": "1"}):
+            with self.assertRaisesRegex(ValueError, "path queue"):
+                safety.validate_cropped_gpu_trial(inventory, [], 256, 256, 1)
+
+    def test_cropped_trial_retains_cpu_compositor_and_disables_expensive_paths(self):
+        target = scene()
+        target.render.resolution_x = target.render.resolution_y = 256
+        inventory = {"physicallyCropped": True, "triangles": 500,
+                     "vertices": 1500, "loops": 1500, "attributeBytesConservative": 100_000,
+                     "shaderNodes": 10, "unsupported": []}
+        with patch.dict(os.environ, {"CYCLES_CONCURRENT_STATES_FACTOR": safety.GPU_TRIAL_STATES_FACTOR}):
+            safety.configure_cropped_gpu_trial(target, inventory, [], samples=1)
+        self.assertEqual(target.cycles.device, "GPU")
+        self.assertEqual(target.cycles.max_bounces, 4)
+        self.assertEqual(target.cycles.time_limit, 1)
+        self.assertFalse(target.render.use_persistent_data)
+        self.assertFalse(target.cycles.use_denoising)
+        self.assertEqual(target.render.compositor_device, "CPU")
+
+    def test_cuda_queue_plan_accounts_for_selected_device_and_float_rounding(self):
+        for multiprocessors in (1, 66, 200):
+            for threads in (1024, 1536, 2048):
+                for target in (1024,8192):
+                    plan = safety.cuda_queue_plan(multiprocessors, threads, target)
+                    self.assertLessEqual(plan["expectedStates"], target)
+                    self.assertGreaterEqual(plan["expectedStates"], 1024)
+        for values in ((0,1536,8192),(66,0,8192),(66,1536,1_000_000)):
+            with self.assertRaises(ValueError): safety.cuda_queue_plan(*values)
 
     def test_slot_excludes_another_owner_and_releases(self):
         with tempfile.TemporaryDirectory() as directory:

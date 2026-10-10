@@ -16,6 +16,10 @@ GPU_SCENE_BUDGET = 512 * 1024 * 1024
 GPU_MAX_SECONDS = 1.0
 CPU_MAX_EDGE = 4100  # 4096px chunk + two 2px exterior gutters.
 CPU_QUALITY_MAX_SAMPLES = 256  # Explicit, single-view quality comparisons only.
+GPU_TRIAL_MAX_EDGE = 256
+GPU_TRIAL_MAX_TRIANGLES = 50_000
+GPU_TRIAL_TEXTURE_BUDGET = 32 * 1024 * 1024
+GPU_TRIAL_STATES_FACTOR = "0.000001"
 LOCK_PATH = Path(__file__).resolve().parents[1] / "work" / "render-safety.lock"
 SCHEDULE_LOCK_PATH = LOCK_PATH.with_name("render-scheduler.lock")
 
@@ -104,6 +108,96 @@ def guarded_render(scene=None, *, samples=DEFAULT_SAMPLES, threads=DEFAULT_THREA
         configure_scene(scene, samples=samples, threads=threads,
                         images=bpy.data.images, render_edge=edge, quality_cpu=quality_cpu)
         return bpy.ops.render.render(write_still=True)
+
+
+def validate_cropped_gpu_trial(inventory, images, width, height, samples):
+    """Bound a physically cropped experiment, not unknown driver memory/time.
+
+    Caller inventories the actual loaded scene before CUDA initialization. This
+    separate profile deliberately never treats an estimated peak as a verified
+    whole-device cap. General GPU rendering remains closed above.
+    """
+    if any(not isinstance(v, int) or isinstance(v, bool) or not 1 <= v <= GPU_TRIAL_MAX_EDGE
+           for v in (width, height)):
+        raise ValueError("Cropped GPU trial output must be 1..256 pixels per edge")
+    if not isinstance(samples, int) or isinstance(samples, bool) or not 1 <= samples <= 16:
+        raise ValueError("Cropped GPU trial samples must be 1..16")
+    if inventory.get("physicallyCropped") is not True:
+        raise ValueError("GPU trial requires physically cropped geometry and textures")
+    triangles = inventory.get("triangles")
+    if not isinstance(triangles, int) or not 0 < triangles <= GPU_TRIAL_MAX_TRIANGLES:
+        raise ValueError("Cropped GPU trial requires 1..50000 triangles")
+    for field, limit in (("vertices", 150_000), ("loops", 150_000), ("attributeBytesConservative", 32 * 1024 * 1024)):
+        if not isinstance(inventory.get(field), int) or not 0 <= inventory[field] <= limit:
+            raise ValueError(f"Cropped GPU trial {field} exceeds {limit}")
+    if inventory.get("unsupported"):
+        raise ValueError(f"Unsupported GPU trial inputs: {inventory['unsupported']}")
+    if not isinstance(inventory.get("shaderNodes"), int) or not 0 <= inventory["shaderNodes"] <= 1024:
+        raise ValueError("Cropped GPU trial shader graph exceeds 1024 nodes")
+    factor_text = os.environ.get("CYCLES_CONCURRENT_STATES_FACTOR", "")
+    try:
+        factor = float(factor_text)
+    except ValueError:
+        factor = 0
+    if not 0 < factor <= 1/128:
+        raise ValueError("Cropped GPU trial requires the bounded CUDA path queue environment")
+    texture_bytes = 0
+    for image in images:
+        if not getattr(image, "users", 0) or getattr(image, "type", "IMAGE") in {"RENDER_RESULT", "COMPOSITING"}:
+            continue
+        w, h = image.size[:2]
+        if min(w, h) < 1 or max(w, h) > 1024:
+            raise ValueError(f"Cropped GPU trial texture {image.name!r} exceeds 1024 pixels")
+        texture_bytes += (w * h * 64 + 2) // 3
+    if texture_bytes > GPU_TRIAL_TEXTURE_BUDGET:
+        raise ValueError("Cropped GPU trial textures exceed 32 MiB conservative decoded storage")
+    return {"textureBytesConservative": texture_bytes,
+            "renderBufferReserveBytes": width * height * 256,
+            "geometryReserveBytes": triangles * 1024,
+            "maxPrimaryPaths": width * height * samples,
+            "queueStatesFactor": factor_text,
+            "queueStatesLimit": 8192,
+            "unknownDriverAndKernelOverhead": True,
+            "hardDeviceMemoryCap": False, "hardGpuDeadline": False}
+
+
+def cuda_queue_plan(multiprocessors, threads_per_multiprocessor, target_states):
+    """Match Cycles' float32 arithmetic; caller queries the selected device."""
+    import struct
+    if any(not isinstance(v, int) or v <= 0 for v in (multiprocessors, threads_per_multiprocessor)):
+        raise ValueError("CUDA attributes must be positive integers")
+    if target_states not in (1024, 8192):
+        raise ValueError("CUDA trial queue target must be 1024 or 8192")
+    default = max(multiprocessors * threads_per_multiprocessor, 65536) * 16
+    f32 = lambda value: struct.unpack("f", struct.pack("f", value))[0]
+    factor = f32((target_states-1) / default)
+    expected = max(int(f32(default * factor)), 1024)
+    if expected > target_states:
+        raise ValueError("Rounded CUDA queue factor exceeds target")
+    return {"multiprocessors": multiprocessors, "threadsPerMultiprocessor": threads_per_multiprocessor,
+            "defaultStates": default, "factor": format(factor, ".17g"),
+            "expectedStates": expected, "targetStates": target_states}
+
+
+def configure_cropped_gpu_trial(scene, inventory, images, *, samples=1):
+    evidence = validate_cropped_gpu_trial(inventory, images, scene.render.resolution_x,
+                                          scene.render.resolution_y, samples)
+    configure_scene(scene, samples=samples, threads=2, render_edge=GPU_TRIAL_MAX_EDGE)
+    scene.cycles.device = "GPU"
+    scene.cycles.time_limit = 1.0  # Sampling only; never a whole-job guarantee.
+    scene.cycles.use_adaptive_sampling = False
+    scene.cycles.max_bounces = 4
+    scene.cycles.diffuse_bounces = 2
+    scene.cycles.glossy_bounces = 2
+    scene.cycles.transmission_bounces = 2
+    scene.cycles.transparent_max_bounces = 4
+    scene.cycles.volume_bounces = 0
+    scene.cycles.caustics_reflective = False
+    scene.cycles.caustics_refractive = False
+    scene.render.use_persistent_data = False
+    if hasattr(scene.render, "use_motion_blur"):
+        scene.render.use_motion_blur = False
+    return evidence
 
 
 def scene_evidence(scene):
