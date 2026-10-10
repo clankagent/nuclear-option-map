@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from prepare_material_blend_view import prepare_view
 from unity_normal_map import build_dxt5nm_encoded
 from terrain_detail import build_surface, build_variant_macro, texture_color_space
+from terrain_texture_variant import resolve_texture_variant
 from render_safety import guarded_render
 
 
@@ -120,6 +121,8 @@ def make_material(record, image_cache, texture_variant=None):
     nodes.clear()
     output = nodes.new("ShaderNodeOutputMaterial")
     terrain_shader = record.get("shaderName") == "Shader Graphs/TerrainShader"
+    if terrain_shader:
+        texture_variant = resolve_texture_variant(texture_variant)
     surface = nodes.new("ShaderNodeBsdfPrincipled")
     links.new(surface.outputs["BSDF"], output.inputs["Surface"])
     target_color = surface.inputs["Base Color"]
@@ -163,7 +166,8 @@ def make_material(record, image_cache, texture_variant=None):
                 mat["terrainTextureVariant"] = str(texture_variant.path)
                 mat["terrainTextureVariantSha256"] = texture_variant.sha256
             base_color, terrain_normal = build_surface(nodes, links, record, uv.outputs["UV"],
-                                                       base_color, load_image, texture_variant=texture_variant)
+                                                       base_color, load_image, texture_variant=texture_variant or False,
+                                                       macro_variant_applied=bool(texture_variant and asset))
             if terrain_normal is not None:
                 links.new(terrain_normal, surface.inputs["Normal"])
         colors = {item["property"]: item["value"] for item in record.get("colors", [])}
@@ -224,6 +228,7 @@ def make_material(record, image_cache, texture_variant=None):
 
 
 def build(scene_file, report_file, output, map_id, texture_variant=None):
+    texture_variant = resolve_texture_variant(texture_variant, report_file)
     scene_data = json.loads(Path(scene_file).read_text(encoding="utf-8"))
     report = json.loads(Path(report_file).read_text(encoding="utf-8"))
     manifest = json.loads((Path(scene_file).parents[1] / "manifest.json").read_text(encoding="utf-8"))
@@ -280,7 +285,7 @@ def build(scene_file, report_file, output, map_id, texture_variant=None):
         for material_ref in assigned:
             key = ident(material_ref)
             if key not in material_cache:
-                material_cache[key] = make_material(material_rows[key], image_cache, texture_variant)
+                material_cache[key] = make_material(material_rows[key], image_cache, texture_variant or False)
             mats.append(material_cache[key])
         mesh_path = Path(scene_file).parent / record["file"]
         cache_key = (record["file"], tuple(ident(m) for m in assigned))
@@ -313,6 +318,13 @@ def build(scene_file, report_file, output, map_id, texture_variant=None):
     obj_collection.objects.link(sea)
 
     scene = bpy.context.scene
+    if texture_variant:
+        scene["terrainTextureVariant"] = str(texture_variant.path)
+        scene["terrainTextureVariantSha256"] = texture_variant.sha256
+    else:
+        for key in ("terrainTextureVariant", "terrainTextureVariantSha256"):
+            if key in scene:
+                del scene[key]
     scene.render.engine = "CYCLES"
     scene.cycles.device = "CPU"
     scene.render.image_settings.file_format = "PNG"
@@ -391,7 +403,6 @@ def build(scene_file, report_file, output, map_id, texture_variant=None):
 
 if __name__ == "__main__":
     import argparse
-    from terrain_texture_variant import TerrainTextureVariant
     args = sys.argv[sys.argv.index("--") + 1:]
     parser = argparse.ArgumentParser()
     parser.add_argument("scene")
@@ -400,5 +411,4 @@ if __name__ == "__main__":
     parser.add_argument("map_id")
     parser.add_argument("--terrain-textures")
     options = parser.parse_args(args)
-    variant = TerrainTextureVariant(options.terrain_textures) if options.terrain_textures else None
-    build(options.scene, options.report, options.output, options.map_id, variant)
+    build(options.scene, options.report, options.output, options.map_id, options.terrain_textures)

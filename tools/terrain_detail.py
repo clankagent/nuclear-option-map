@@ -229,7 +229,8 @@ class _Graph:
         return self.vector("ADD", a, self.vector("SCALE", self.vector("SUBTRACT", b, a), t))
 
 
-def build_surface(nodes, links, record, uv0, macro_color, load_image, *, normals=True, texture_variant=None):
+def build_surface(nodes, links, record, uv0, macro_color, load_image, *, normals=True,
+                  texture_variant=None, macro_variant_applied=False):
     """Return (linear base-color socket, world normal socket or None).
 
     uv0 MUST be the mesh's original first UV set. The color/normal core follows
@@ -246,6 +247,17 @@ def build_surface(nodes, links, record, uv0, macro_color, load_image, *, normals
     required = ("dunes", "sand", "grass", "grass_fine", "rock", "fields", "lush", "field_angle",
                 "_splat_grass", "_splat_rock", "_splat_fields", "_splat_lush")
     if any(reference(k) is None for k in required): return macro_color, None
+    from terrain_texture_variant import resolve_texture_variant
+    texture_variant = resolve_texture_variant(texture_variant)
+    if texture_variant and not macro_variant_applied:
+        macro = reference("_macro_basecolor")
+        asset = texture_variant.texture_for(record, macro, "macro") if macro else None
+        if asset:
+            scale = macro.get("scale") or {"x": 1, "y": 1}
+            offset = macro.get("offset") or {"x": 0, "y": 0}
+            macro_uv = graph.vector("ADD", graph.vector("MULTIPLY", uv0,
+                                    (scale["x"], scale["y"], 1)), (offset["x"], offset["y"], 0))
+            macro_color = build_variant_macro(nodes, links, asset, macro_uv, load_image)
     saved = {x["property"]: x["value"] for x in record.get("colors", [])}
     scale = saved.get("_detail_scale", {"r": 1, "g": 1})
     detail_uv = graph.vector("MULTIPLY", uv0, (scale["r"], scale["g"], 1))
@@ -313,7 +325,9 @@ def build_surface(nodes, links, record, uv0, macro_color, load_image, *, normals
 
 def build_detail(nodes, links, record, macro_uv, macro_color, load_image, **unused):
     """Compatibility color-only entry point; pass original UV0 as macro_uv."""
-    return build_surface(nodes, links, record, macro_uv, macro_color, load_image, normals=False)[0]
+    return build_surface(nodes, links, record, macro_uv, macro_color, load_image, normals=False,
+                         texture_variant=unused.get("texture_variant"),
+                         macro_variant_applied=unused.get("macro_variant_applied", False))[0]
 
 
 if __name__ == "__main__":

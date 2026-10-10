@@ -13,14 +13,14 @@ import bpy
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from render_material_prototype import make_material
 from render_safety import configure_scene, lower_process_priority, render_slot
-from terrain_texture_variant import TerrainTextureVariant
+from terrain_texture_variant import resolve_texture_variant
 from check_terrain_texture_variant_scene import geometry_fingerprint
 
 
-def main(report_path, output_path, terrain_textures=None):
+def main(report_path, output_path, terrain_textures=None, compress=False):
     with render_slot():
         lower_process_priority()
-        variant = TerrainTextureVariant(terrain_textures) if terrain_textures else None
+        variant = resolve_texture_variant(terrain_textures, report_path)
         source_geometry = geometry_fingerprint(bpy.context.scene)
         report = json.loads(Path(report_path).read_text(encoding="utf-8-sig"))
         records = [r for r in report["materials"] if r.get("shaderName") == "Shader Graphs/TerrainShader"]
@@ -29,7 +29,7 @@ def main(report_path, output_path, terrain_textures=None):
             old = bpy.data.materials.get(record["name"])
             if old is None or not old.users:
                 continue
-            new = make_material(record, {}, texture_variant=variant)
+            new = make_material(record, {}, texture_variant=variant or False)
             old.user_remap(new)
             bpy.data.materials.remove(old)
             new.name = record["name"]
@@ -59,8 +59,12 @@ def main(report_path, output_path, terrain_textures=None):
                            originalAlphaNormalsMasks=True)
             bpy.context.scene["terrainTextureVariant"] = str(variant.path)
             bpy.context.scene["terrainTextureVariantSha256"] = variant.sha256
+        else:
+            for key in ("terrainTextureVariant", "terrainTextureVariantSha256"):
+                if key in bpy.context.scene:
+                    del bpy.context.scene[key]
         # Save the provenance with the packed scene, not only the receipt.
-        bpy.ops.wm.save_as_mainfile(filepath=str(output))
+        bpy.ops.wm.save_as_mainfile(filepath=str(output), compress=compress)
         output.with_suffix(".terrain.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
         print(json.dumps(receipt))
 
@@ -70,5 +74,6 @@ if __name__ == "__main__":
     parser.add_argument("report")
     parser.add_argument("output")
     parser.add_argument("--terrain-textures")
+    parser.add_argument("--compress", action="store_true")
     args = parser.parse_args(sys.argv[sys.argv.index("--") + 1:])
-    main(args.report, args.output, args.terrain_textures)
+    main(args.report, args.output, args.terrain_textures, args.compress)

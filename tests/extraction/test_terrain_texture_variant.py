@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tools'))
-from terrain_texture_variant import TerrainTextureVariant
+from terrain_texture_variant import TerrainTextureVariant, resolve_texture_variant
 
 
 class VariantTests(unittest.TestCase):
@@ -73,6 +73,14 @@ class VariantTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'hash mismatch'):
             self.load()
 
+    def test_cached_variant_rechecks_modified_rgb(self):
+        variant = self.load()
+        (self.root / 'rgb.bin').write_bytes(b'changed derivative after validation')
+        texture = {'property': '_macro_basecolor', 'export': str(self.root / 'source.bin'),
+                   'pixels': [2, 3], 'colorSpace': 1, 'textureSettings': None}
+        with self.assertRaisesRegex(ValueError, 'hash mismatch'):
+            variant.texture_for('Terrain1', texture, 'macro')
+
     def test_periodic_virtual_boxes_are_explicit_and_bounded(self):
         (self.root / 'tile.bin').write_bytes(b'periodic tile pixels')
         self.asset['macroTileSpec'] = 'tiles.json'
@@ -95,6 +103,36 @@ class VariantTests(unittest.TestCase):
                 write()
                 with self.assertRaises(ValueError):
                     self.load()
+
+    def test_default_descriptor_activation_switch_and_baseline(self):
+        first = self.load()
+        report = self.root / 'material-report.json'
+        descriptor = self.root / 'terrain-textures.json'
+        self.assertIsNone(resolve_texture_variant(report_path=report))
+        descriptor.write_text(json.dumps({'schemaVersion': 1, 'manifest': 'selection.json'}))
+        selected = resolve_texture_variant(report_path=report)
+        self.assertEqual(selected.sha256, first.sha256)
+        self.assertIs(selected, resolve_texture_variant(report_path=report))
+        self.assertIs(selected, resolve_texture_variant(selected))
+        self.assertIsNone(resolve_texture_variant(False, report))
+        second_path = self.root / 'other-selection.json'
+        second_path.write_text(json.dumps(self.spec, indent=2))
+        descriptor.write_text(json.dumps({'schemaVersion': 1, 'manifest': second_path.name}))
+        switched = resolve_texture_variant(report_path=report)
+        self.assertEqual(switched.path, second_path)
+        self.assertIsNot(switched, selected)
+        self.assertIs(switched, resolve_texture_variant(second_path))
+
+    def test_installed_invalid_default_never_falls_back(self):
+        report = self.root / 'material-report.json'
+        descriptor = self.root / 'terrain-textures.json'
+        for contents in ['broken json', json.dumps({'schemaVersion': 2, 'manifest': 'x'}),
+                         json.dumps({'schemaVersion': 1, 'manifest': ''}),
+                         json.dumps({'schemaVersion': 1, 'manifest': 'missing.json'})]:
+            descriptor.write_text(contents)
+            with self.subTest(contents=contents):
+                with self.assertRaises((ValueError, FileNotFoundError)):
+                    resolve_texture_variant(report_path=report)
 
 
 if __name__ == '__main__':

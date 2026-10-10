@@ -118,7 +118,17 @@ This prepares and packs a CPU scene without rendering. Keep the material report,
 ### Satellite scene tiles
 
 Terrain RGB variants can be applied to an existing packed scene without
-reimporting geometry:
+reimporting geometry. To make a selection the default for scene rebuilds, place
+`terrain-textures.json` beside the material report (normally `work/extraction/`):
+
+```json
+{"schemaVersion": 1, "manifest": "selected-textures/selection.json"}
+```
+
+The manifest path resolves relative to that descriptor. The importer, material
+builder and relighting helper apply the installed default automatically. An
+invalid installed selection raises an error rather than reverting to originals.
+An explicit manifest can still override the default:
 
 ```text
 blender --background SOURCE.blend --threads 2 --python-exit-code 1 --python tools/relight_terrain_scene.py -- MATERIAL_REPORT.json SELECTED.blend --terrain-textures SELECTION.json

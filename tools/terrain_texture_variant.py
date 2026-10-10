@@ -2,6 +2,7 @@
 import hashlib
 import json
 import struct
+from functools import lru_cache
 from pathlib import Path
 from terrain_detail import DETAIL_PROPERTIES
 
@@ -9,6 +10,39 @@ DETAIL_KEYS = ('dunes', 'sand', 'grass', 'grass_fine', 'rock', 'fields', 'lush')
 ALLOWED = {'_macro_basecolor': 'macro', **{
     '_SampleTexture2D_' + DETAIL_PROPERTIES[k] + '_Texture_1_Texture2D': 'detail'
     for k in DETAIL_KEYS}}
+
+
+@lru_cache(maxsize=8)
+def _cached_variant(path, mtime_ns, size):
+    return TerrainTextureVariant(path)
+
+
+def resolve_texture_variant(value=None, report_path=None):
+    """Resolve an explicit variant or the installed extraction default.
+
+    False explicitly selects original colors. A missing default descriptor is
+    normal for a fresh extraction; an invalid installed default fails closed.
+    """
+    if isinstance(value, TerrainTextureVariant):
+        return value
+    if value is False:
+        return None
+    if value is not None:
+        path = Path(value).resolve()
+    else:
+        directory = (Path(report_path).resolve().parent if report_path is not None
+                     else Path(__file__).resolve().parents[1] / 'work/extraction')
+        descriptor = directory / 'terrain-textures.json'
+        if not descriptor.exists():
+            return None
+        spec = json.loads(descriptor.read_text(encoding='utf-8-sig'))
+        if (not isinstance(spec, dict) or spec.get('schemaVersion') != 1 or
+                not isinstance(spec.get('manifest'), str) or not spec['manifest'].strip()):
+            raise ValueError('Invalid default terrain texture descriptor')
+        path = Path(spec['manifest'])
+        path = (path if path.is_absolute() else descriptor.parent / path).resolve()
+    stat = path.stat()
+    return _cached_variant(str(path), stat.st_mtime_ns, stat.st_size)
 
 
 class TerrainTextureVariant:
@@ -83,13 +117,15 @@ class TerrainTextureVariant:
 
     def _hash(self, path):
         path = Path(path).resolve()
-        if path not in self._hashes:
+        stat = path.stat()
+        key = (path, stat.st_mtime_ns, stat.st_size)
+        if key not in self._hashes:
             h = hashlib.sha256()
             with path.open('rb') as stream:
                 for block in iter(lambda: stream.read(1048576), b''):
                     h.update(block)
-            self._hashes[path] = h.hexdigest()
-        return self._hashes[path]
+            self._hashes[key] = h.hexdigest()
+        return self._hashes[key]
 
     def _verify(self, path, expected):
         if self._hash(path) != expected:
@@ -169,6 +205,9 @@ class TerrainTextureVariant:
         if texture.get('textureSettings') != asset.get('textureSettings'):
             raise ValueError('Material texture sampling settings mismatch')
         self._verify(texture['export'], asset['sourceSha256'])
+        self._verify(asset['rgbExport'], asset['rgbSha256'])
+        for tile in asset.get('macroTiles', []):
+            self._verify(tile['path'], tile['sha256'])
         return asset
 
     def iter_assets(self):
