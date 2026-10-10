@@ -24,6 +24,12 @@ def main():
     args = parser.parse_args()
     lower_process_priority()
     args.state_directory.mkdir(parents=True, exist_ok=True)
+    # Keep long-lived Cycles tile buffers away from shared system-temp cleanup.
+    # Blender's Windows TEMP override requires an existing absolute directory.
+    scratch_directory = (args.state_directory/'blender-temp').resolve()
+    scratch_directory.mkdir(parents=True, exist_ok=True)
+    child_env = os.environ.copy()
+    child_env.update(TEMP=str(scratch_directory), TMP=str(scratch_directory))
     state_path = args.state_directory/'sequence-status.json'
     tools = Path(__file__).resolve().parent
     flags = subprocess.CREATE_NO_WINDOW | subprocess.BELOW_NORMAL_PRIORITY_CLASS if os.name == 'nt' else 0
@@ -50,7 +56,7 @@ def main():
                        '--linear-denoise', '--reuse-uniform-water']
             with (args.state_directory/f'{family}-bake.log').open('a', encoding='utf-8') as log:
                 process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT,
-                                           creationflags=flags)
+                                           creationflags=flags, env=child_env)
                 status('baking', map=family, childPid=process.pid, dataset=str(output.resolve()))
                 code = process.wait()
                 if code:
