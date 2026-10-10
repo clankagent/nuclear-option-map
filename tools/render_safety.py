@@ -222,6 +222,12 @@ def scene_evidence(scene):
         "compositorDevice": getattr(scene.render, "compositor_device", "CPU-only legacy compositor"),
         "width": scene.render.resolution_x, "height": scene.render.resolution_y,
         "resolutionPercentage": scene.render.resolution_percentage,
+        "enabledPasses": sorted({prop.identifier
+                                  for layer in getattr(scene, "view_layers", ()) if getattr(layer, "use", True)
+                                  for holder in (layer, getattr(layer, "cycles", None))
+                                  for prop in getattr(getattr(holder, "bl_rna", None), "properties", ())
+                                  if prop.identifier.startswith("use_pass_") and prop.type == "BOOLEAN"
+                                  and getattr(holder, prop.identifier)}),
     }
 
 

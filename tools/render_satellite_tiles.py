@@ -88,6 +88,65 @@ def denoise_render_file(path, size, settings):
     return dict(proof, padding=geometry["padding"], renderEdge=geometry["renderEdge"])
 
 
+def crop_linear_pixels(pixels, size, geometry):
+    """Symmetric context crop retains Blender's bottom-origin row order."""
+    import numpy as np
+    edge, padding = geometry["renderEdge"], geometry["padding"]
+    if pixels.shape != (edge, edge, 4) or padding * 2 + size != edge:
+        raise ValueError("Linear pixel dimensions differ from aligned crop")
+    return np.ascontiguousarray(pixels[padding:padding + size, padding:padding + size])
+
+
+def water_render_signature(profile, edge, seed, frame, surface, denoise=None, display=None):
+    """Reuse requires identical physical surface, sampling and display pipeline."""
+    return json.dumps([profile, edge, seed, frame, surface, denoise, display], sort_keys=True)
+
+
+def denoise_linear_render_file(exr, path, size, settings, scene):
+    """Float Combined -> CPU HDR OIDN -> AgX -> aligned center crop."""
+    import bpy
+    import numpy as np
+    from denoise_sample_comparison import denoise_hdr
+    geometry = denoise_geometry(size, settings["profile"])
+    edge = geometry["renderEdge"]
+    source = bpy.data.images.load(str(exr.resolve()), check_existing=False)
+    image = None
+    try:
+        if tuple(source.size) != (edge, edge) or not source.is_float or source.channels != 4:
+            raise ValueError("Require bounded float RGBA Combined EXR")
+        pixels = np.empty(edge * edge * 4, dtype=np.float32)
+        source.pixels.foreach_get(pixels)
+        pixels = pixels.reshape((edge, edge, 4))
+        if not np.isfinite(pixels).all():
+            raise ValueError("EXR contains nonfinite pixels")
+        color, proof = denoise_hdr(pixels[:, :, :3], settings["libraryDirectory"])
+        for key, expected in settings["profile"].items():
+            if proof.get(key) != expected:
+                raise ValueError(f"HDR denoiser runtime differs from provenance: {key}")
+        pixels[:, :, :3] = color
+        cropped = crop_linear_pixels(pixels, size, geometry)
+        image = bpy.data.images.new("Satellite CPU linear denoised", width=size,
+                                    height=size, alpha=True, float_buffer=True)
+        image.colorspace_settings.name = "Linear Rec.709"
+        image.pixels.foreach_set(cropped.ravel())
+        image.update()
+        scene.render.image_settings.file_format = "PNG"
+        scene.render.image_settings.color_mode = "RGB"
+        scene.render.image_settings.color_depth = "8"
+        image.save_render(str(path.resolve()), scene=scene)
+        proof.update(geometry, colorSpace="scene-linear", outputWidth=size,
+                     outputHeight=size, viewTransform=scene.view_settings.view_transform,
+                     look=scene.view_settings.look, exposure=scene.view_settings.exposure,
+                     gamma=scene.view_settings.gamma,
+                     explicitRGBABytes=pixels.nbytes + cropped.nbytes)
+        exr.unlink()
+        return proof
+    finally:
+        bpy.data.images.remove(source)
+        if image is not None:
+            bpy.data.images.remove(image)
+
+
 def chunk_renders(level, width, depth, scratch, output, chunk_tiles=4):
     """Bound render memory while amortizing scene/render setup across 16 tiles."""
     mpp = width / level["width"]
@@ -311,6 +370,7 @@ def _render_blender_job(job_path):
     results = []
     water_cache = Path(job["receipt"]).with_name("uniform-water-chunk.png")
     water_signature = None
+    water_denoise_proof = None
     water_cache.unlink(missing_ok=True)
     for tile in job["renders"]:
         start = time.perf_counter()
@@ -345,24 +405,49 @@ def _render_blender_job(job_path):
         scene.render.resolution_x = scene.render.resolution_y = render_edge
         path = Path(tile["path"])
         path.parent.mkdir(parents=True, exist_ok=True)
-        scene.render.filepath = str(path.resolve())
+        linear = bool(job.get("cpuDenoise", {}).get("linear", False)) if job.get("cpuDenoise") else False
+        if linear:
+            for layer in scene.view_layers:
+                for identifier in dir(layer):
+                    if identifier.startswith("use_pass_") and identifier != "use_pass_combined":
+                        try:
+                            setattr(layer, identifier, False)
+                        except (AttributeError, TypeError):
+                            pass
+                layer.use_pass_combined = True
+        render_path = path.with_suffix(".exr") if linear else path
+        scene.render.image_settings.file_format = "OPEN_EXR" if linear else "PNG"
+        scene.render.image_settings.color_mode = "RGBA" if linear else "RGB"
+        scene.render.image_settings.color_depth = "32" if linear else "8"
+        scene.render.filepath = str(render_path.resolve())
         proof = None
         signature = None
         reused = False
         if job.get("reuseUniformWater"):
             try:
                 proof = _water_snapshot(scene, visible_geometry, (cx-half, cy-half, cx+half, cy+half), shadow, top)
-                signature = json.dumps([profile, render_edge, scene.cycles.seed, scene.frame_current, proof["surfaceSignature"]], sort_keys=True)
+                display = [scene.view_settings.view_transform, scene.view_settings.look,
+                           scene.view_settings.exposure, scene.view_settings.gamma] if linear else None
+                signature = water_render_signature(profile, render_edge, scene.cycles.seed,
+                                                   scene.frame_current, proof["surfaceSignature"],
+                                                   job["cpuDenoise"] if linear else None, display)
                 reused = copy_verified_chunk(water_cache, path, proof, cached_signature=water_signature, render_signature=signature)
             except (AttributeError, KeyError, TypeError, ValueError):
                 proof = None  # Unknown/unsupported data always renders normally.
         if not reused:
             bpy.ops.render.render(write_still=True)
-            if proof and uniform_water_eligible(proof):
+            if proof and uniform_water_eligible(proof) and not linear:
                 import shutil
                 shutil.copyfile(path, water_cache)
                 water_signature = signature
-        denoise_proof = denoise_render_file(path, tile["size"], job["cpuDenoise"]) if job.get("cpuDenoise") else None
+        denoise_proof = (dict(water_denoise_proof) if linear and reused else
+                         denoise_linear_render_file(render_path, path, tile["size"], job["cpuDenoise"], scene)
+                         if linear else denoise_render_file(path, tile["size"], job["cpuDenoise"]) if job.get("cpuDenoise") else None)
+        if linear and not reused and proof and uniform_water_eligible(proof):
+            import shutil
+            shutil.copyfile(path, water_cache)  # Cache only the finished denoised display image.
+            water_signature = signature
+            water_denoise_proof = dict(denoise_proof)
         result = {
             **tile,
             "cpuDenoise": denoise_proof,
@@ -506,6 +591,7 @@ def main():
     p.add_argument("--device", choices=["cpu", "gpu"], default="cpu",
                    help="CPU default; reserved GPU mode is unavailable without verified total scene/time bounds")
     p.add_argument("--cpu-denoise", dest="cpu_denoise_enabled", action="store_true", help="Explicit CPU OIDN with aligned overlap; static/benchmark only")
+    p.add_argument("--linear-denoise", action="store_true", help="CPU HDR OIDN on float Combined EXR before AgX; implies --cpu-denoise")
     p.add_argument("--samples", type=int, default=16)
     p.add_argument("--threads", type=int, default=2)
     p.add_argument("--tile-budget", type=int, default=64)
@@ -534,7 +620,7 @@ def main():
     except ValueError as exc:
         p.error(str(exc))
     args.cpu_denoise = None
-    if args.cpu_denoise_enabled:
+    if args.cpu_denoise_enabled or args.linear_denoise:
         if args.serve:
             p.error("CPU denoise is for precomputed static/benchmark imagery")
         from cpu_denoise import denoise_srgb
@@ -545,6 +631,17 @@ def main():
             p.error(f"CPU denoise preflight failed: {exc}")
         args.cpu_denoise = {"profile": profile, "python": sys.executable,
                             "libraryDirectory": str(directory.resolve())}
+        if args.linear_denoise:
+            import numpy as np
+            from denoise_sample_comparison import denoise_hdr
+            with render_slot():
+                _, hdr_profile = denoise_hdr(np.zeros((1, 1, 3), dtype=np.float32), directory)
+            for key in ("width", "height", "seconds", "explicitBufferBytes"):
+                hdr_profile.pop(key)
+            args.cpu_denoise["profile"] = hdr_profile
+            args.cpu_denoise["linear"] = True
+            args.cpu_denoise["linearImplementationSha256"] = hashlib.sha256(Path(__file__).with_name("denoise_sample_comparison.py").read_bytes()).hexdigest()
+            args.cpu_denoise["linearPipelineSha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     max_edge = GPU_MAX_EDGE if args.device == "gpu" else CPU_MAX_EDGE
     requested_edge = (args.benchmark_size if args.benchmark else
                       TILE + GUTTER * 2 if args.serve else
@@ -627,7 +724,7 @@ def main():
         receipt = scratch / f"{label}-receipt.json"
         jobpath = scratch / f"{label}-job.json"
         if receipt.exists():
-            receipt.unlink()
+            receipt.rename(receipt.with_name(f"{receipt.stem}-history-{time.time_ns()}.json"))
         atomic_json(
             jobpath,
             {
@@ -660,7 +757,7 @@ def main():
                 env=env,
                 stdout=log,
                 stderr=subprocess.STDOUT,
-                creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS if os.name == "nt" else 0,
+                creationflags=(subprocess.CREATE_NO_WINDOW | subprocess.BELOW_NORMAL_PRIORITY_CLASS) if os.name == "nt" else 0,
             )
             consumed = 0
             try:

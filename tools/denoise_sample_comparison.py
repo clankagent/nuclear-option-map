@@ -7,6 +7,7 @@ import argparse
 import ctypes as c
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import sys
@@ -38,11 +39,23 @@ def validate_chunks(chunks):
         raise ValueError('Require exactly 128 accumulated samples')
 
 
+def validate_hdr(color, timeout):
+    import numpy as np
+    if (color.ndim != 3 or color.shape[2] != 3 or
+            not all(1 <= edge <= 4100 for edge in color.shape[:2]) or
+            not np.isfinite(color).all() or (color < 0).any()):
+        raise ValueError('Require finite nonnegative linear RGB with edges in 1..4100')
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or not 0 < timeout <= 240:
+        raise ValueError('Require finite progress timeout in (0, 240] seconds')
+
+
 def denoise_hdr(color, directory, timeout=240):
     import numpy as np
+    color = np.asarray(color)
+    validate_hdr(color, timeout)
     color = np.ascontiguousarray(color, dtype=np.float32)
-    if color.shape != (256, 256, 3) or not np.isfinite(color).all() or (color < 0).any():
-        raise ValueError('Require finite nonnegative 256-square linear RGB')
+    validate_hdr(color, timeout)
+    height, width = color.shape[:2]
     output = np.empty_like(color)
     directory = Path(directory).resolve()
     for backend in ('SYCL', 'CUDA', 'HIP', 'METAL'):
@@ -65,6 +78,7 @@ def denoise_hdr(color, directory, timeout=240):
     set_image = api('oidnSetSharedFilterImage', [ptr, string, ptr, integer, size, size, size, size, size])
     set_bool = api('oidnSetFilterBool', [ptr, string, c.c_bool])
     set_int = api('oidnSetFilterInt', [ptr, string, integer])
+    get_int = api('oidnGetFilterInt', [ptr, string], integer)
     commit_filter = api('oidnCommitFilter', [ptr])
     execute = api('oidnExecuteFilter', [ptr])
     release_filter = api('oidnReleaseFilter', [ptr])
@@ -92,7 +106,7 @@ def denoise_hdr(color, directory, timeout=240):
         filter_handle = new_filter(device, b'RT')
         check(device)
         for key, array in ((b'color', color), (b'output', output)):
-            set_image(filter_handle, key, array.ctypes.data, 3, 256, 256, 0, 0, 0)
+            set_image(filter_handle, key, array.ctypes.data, 3, width, height, 0, 0, 0)
         set_bool(filter_handle, b'hdr', True)
         set_bool(filter_handle, b'srgb', False)
         set_int(filter_handle, b'maxMemoryMB', 256)
@@ -101,9 +115,16 @@ def denoise_hdr(color, directory, timeout=240):
         check(device)
         execute(filter_handle)
         check(device)
+        alignment = get_int(filter_handle, b'tileAlignment')
+        overlap = get_int(filter_handle, b'tileOverlap')
+        check(device)
+        if alignment < 1 or overlap < 1:
+            raise RuntimeError('OIDN returned invalid aligned context')
         if not np.isfinite(output).all():
             raise RuntimeError('OIDN produced nonfinite output')
         receipt = dict(device='CPU', threads=2, filter='RT', hdr=True, srgb=False,
+                       width=width, height=height,
+                       tileAlignment=alignment, tileOverlap=overlap,
                        auxiliaryFeatures=False, filterMemoryRequestMB=256,
                        hardMemoryCap=False, progressTimeoutSeconds=timeout,
                        seconds=time.monotonic()-started,
