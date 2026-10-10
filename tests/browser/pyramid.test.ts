@@ -1,20 +1,42 @@
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { PyramidRenderer, type TileImage, type RasterView } from '../../src/pyramid';
-import { validateMapCatalog } from '../../src/catalog';
+import { validateMapCatalog, type TilePyramid } from '../../src/catalog';
 const pyramid = { tileSize: 512, levels: [0, 1, 2].map(level => ({ level, width: 512 * 2 ** level, height: 512 * 2 ** level, columns: 2 ** level, rows: 2 ** level, urlTemplate: `https://test/${level}/{x}/{y}` })) };
 const view: RasterView = { x: 0, y: 0, width: 512, height: 512, screenWidth: 512, screenHeight: 512, dpr: 1 };
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
-function fixture(budget?: number) {
+function fixture(budget?: number, source: TilePyramid = pyramid) {
   let now = 0;
   const requests: { url: string; signal: AbortSignal; resolve: (image: TileImage) => void; reject: (e: Error) => void }[] = [];
   const redraw = vi.fn();
-  const renderer = new PyramidRenderer(pyramid, (url, signal) => new Promise((resolve, reject) => requests.push({ url, signal, resolve, reject })), redraw, budget, () => now);
+  const renderer = new PyramidRenderer(source, (url, signal) => new Promise((resolve, reject) => requests.push({ url, signal, resolve, reject })), redraw, budget, () => now);
   const image = () => ({ image: {} as CanvasImageSource, width: 512, height: 512, dispose: vi.fn() });
   vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1)); vi.stubGlobal('cancelAnimationFrame', vi.fn());
   const ctx = { save: vi.fn(), restore: vi.fn(), drawImage: vi.fn(), beginPath: vi.fn(), rect: vi.fn(), clip: vi.fn(), globalAlpha: 1 } as unknown as CanvasRenderingContext2D;
   return { renderer, requests, redraw, image, ctx, tick: (value: number) => { now = value; } };
 }
 afterEach(() => vi.unstubAllGlobals());
+it('requests only precomputed sparse tiles and fades them over complete ancestor coverage', async () => {
+  const sparse = { ...pyramid, levels: pyramid.levels.map(l => ({ ...l, ...(l.level === 1 ? { coverage: [] } : l.level === 2 ? { coverage: [{ x: 0, y: 0, columns: 1, rows: 1 }] } : {}) })) };
+  const f = fixture(undefined, sparse), zoom = { ...view, width: 2048, height: 2048, screenWidth: 1024, screenHeight: 1024 };
+  f.renderer.update(zoom);
+  expect(f.requests.map(r => r.url)).toEqual(['https://test/0/0/0', 'https://test/2/0/0']);
+  const parent = f.image(), child = { ...f.image(), image: { child: true } as unknown as CanvasImageSource };
+  f.requests[0].resolve(parent); await flush(); f.tick(200);
+  f.renderer.draw(f.ctx, zoom);
+  expect(f.ctx.drawImage).toHaveBeenCalledWith(parent.image, 0, 0, 512, 512, 0, 0, 2048, 2048);
+  f.requests[1].resolve(child); await flush(); f.tick(290); f.renderer.draw(f.ctx, zoom);
+  expect(f.ctx.globalAlpha).toBe(.5);
+  f.tick(400); (f.ctx.rect as ReturnType<typeof vi.fn>).mockClear(); f.renderer.draw(f.ctx, zoom);
+  // Skip the absent intermediate level and keep the three uncovered quadrants.
+  expect(f.ctx.rect).toHaveBeenCalledWith(512, 0, 512, 512);
+  expect(f.ctx.rect).not.toHaveBeenCalledWith(0, 0, 512, 512);
+  f.renderer.update({ ...zoom, x: -1024 }); await flush();
+  expect(f.requests.map(r => r.url)).toEqual(['https://test/0/0/0', 'https://test/2/0/0']);
+  expect(f.renderer.stats.visiblePending).toBe(0);
+  f.renderer.draw(f.ctx, { ...zoom, x: -1024 });
+  expect(parent.dispose).not.toHaveBeenCalled();
+  f.renderer.destroy();
+});
 it('accounts for physical gutters but draws the logical tile bounds', async () => {
   const f = fixture(), image = { ...f.image(), width: 516, height: 516 };
   let now = 1000;

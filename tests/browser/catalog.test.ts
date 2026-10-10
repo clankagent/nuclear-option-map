@@ -39,6 +39,17 @@ describe('map catalog contracts', () => {
   it('returns independent grid metadata', () => {
     const copy = validateMap(map); copy.grid.columns = 20; expect(map.grid.columns).toBe(8);
   });
+  it('validates sparse raster coverage and copies its rectangles', () => {
+    const levels = [0, 1].map(level => ({ level, width: 512 * 2 ** level, height: 512 * 2 ** level, columns: 2 ** level, rows: 2 ** level, urlTemplate: '{x}/{y}.png' }));
+    const coverage = [{ x: 1, y: 0, columns: 1, rows: 2 }];
+    const withCoverage = (value: unknown, level = 1) => ({ ...map, tiles: { tileSize: 512, levels: levels.map(l => l.level === level ? { ...l, coverage: value } : l) } });
+    const result = validateMap(withCoverage(coverage));
+    result.tiles!.levels[1].coverage![0].x = 0;
+    expect(coverage[0].x).toBe(1);
+    expect(validateMap(withCoverage([])).tiles!.levels[1].coverage).toEqual([]);
+    for (const invalid of [null, {}, [{ x: -1, y: 0, columns: 1, rows: 1 }], [{ x: 1, y: 0, columns: 2, rows: 1 }], [{ x: 0, y: 0, columns: 0, rows: 1 }], [{ x: 0, y: .5, columns: 1, rows: 1 }]]) expect(() => validateMap(withCoverage(invalid))).toThrow('coverage');
+    expect(() => validateMap(withCoverage([], 0))).toThrow('root');
+  });
   it('validates and independently resolves lossless ground-height pyramids', () => {
     const topography = { minHeightMeters: 0, maxHeightMeters: 1000, heightStepMeters: .1, tiles: { tileSize: 256, gutter: 2, levels: [{ level: 0, width: 256, height: 256, columns: 1, rows: 1, urlTemplate: 'heights/{x}/{y}.png?v=abcd' }] } };
     const result = validateMapCatalog({ schemaVersion: 1, maps: [{ ...map, topography }] }, 'https://example.org/maps/manifest.json').maps[0];

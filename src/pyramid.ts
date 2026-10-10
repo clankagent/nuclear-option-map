@@ -1,4 +1,5 @@
 import type { TilePyramid, PyramidLevel } from './catalog';
+import { tileAvailable } from './catalog';
 export interface TileImage { image: CanvasImageSource; width: number; height: number; dispose(): void }
 export type TileLoader = (url: string, signal: AbortSignal) => Promise<TileImage>;
 interface Tile { key: string; level: number; x: number; y: number; image: TileImage; ready: number; used: number; bytes: number }
@@ -46,6 +47,7 @@ export class PyramidRenderer {
     const maxY = Math.min(l.rows - 1, Math.floor((v.screenHeight - v.y) / v.height * l.height / size));
     this.wanted.clear(); this.visible.clear(); this.protected.clear(); const requests = new Map<string, Request>();
     const want = (level: number, x: number, y: number, priority: number) => {
+      if (!tileAvailable(this.pyramid.levels[level], x, y)) return;
       const key = this.key(level, x, y); this.wanted.add(key);
       if (priority < 100000) this.visible.add(key);
       if (!requests.has(key)) requests.set(key, { key, level, x, y, priority });

@@ -1,6 +1,13 @@
 import type { TopographyPyramid } from './topo-style';
-export interface PyramidLevel { level: number; width: number; height: number; columns: number; rows: number; urlTemplate: string }
+/** Tile coordinates, with exclusive right/bottom edges. Rectangles may overlap. */
+export interface TileCoverage { x: number; y: number; columns: number; rows: number }
+export interface PyramidLevel { level: number; width: number; height: number; columns: number; rows: number; urlTemplate: string; coverage?: TileCoverage[] }
 export interface TilePyramid { tileSize: number; gutter?: number; levels: PyramidLevel[] }
+/** Missing coverage means a complete level; an empty array means no tiles. */
+export function tileAvailable(level: PyramidLevel, x: number, y: number): boolean {
+  return x >= 0 && y >= 0 && x < level.columns && y < level.rows &&
+    (level.coverage === undefined || level.coverage.some(r => x >= r.x && y >= r.y && x < r.x + r.columns && y < r.y + r.rows));
+}
 export type ContourInterval = 10 | 20 | 50 | 100;
 export interface ContourPyramid { intervals: ContourInterval[]; levels: { level: number; columns: number; rows: number; urlTemplate: string }[] }
 export interface MapDefinition {
@@ -61,7 +68,13 @@ export function validateMap(value: unknown): MapDefinition {
     const levels = p.levels.map((l, index) => {
       if (!l || l.level !== index || !Number.isSafeInteger(l.width) || !Number.isSafeInteger(l.height) || l.width < 1 || l.height < 1 || l.width > 1048576 || l.height > 1048576 || l.columns !== Math.ceil(l.width / p.tileSize) || l.rows !== Math.ceil(l.height / p.tileSize) || typeof l.urlTemplate !== 'string' || !l.urlTemplate.includes('{x}') || !l.urlTemplate.includes('{y}')) throw new TypeError('Invalid pyramid level');
       if (index && (Math.ceil(l.width / 2) !== p.levels[index - 1].width || Math.ceil(l.height / 2) !== p.levels[index - 1].height)) throw new TypeError('Pyramid levels must double their dimensions');
-      return { ...l };
+      if (l.coverage !== undefined) {
+        if (index === 0 || !Array.isArray(l.coverage) || l.coverage.length > 4096) throw new TypeError('Invalid pyramid coverage; root must be complete');
+        for (const r of l.coverage) {
+          if (!r || ![r.x, r.y, r.columns, r.rows].every(Number.isSafeInteger) || r.x < 0 || r.y < 0 || r.columns < 1 || r.rows < 1 || r.x + r.columns > l.columns || r.y + r.rows > l.rows) throw new TypeError('Invalid pyramid coverage rectangle');
+        }
+      }
+      return { ...l, ...(l.coverage !== undefined ? { coverage: l.coverage.map(r => ({ ...r })) } : {}) };
     });
     tiles = { tileSize: p.tileSize, gutter: p.gutter ?? 0, levels };
   }
