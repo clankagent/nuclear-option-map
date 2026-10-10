@@ -117,6 +117,25 @@ This prepares and packs a CPU scene without rendering. Keep the material report,
 
 ### Satellite scene tiles
 
+Terrain RGB variants can be applied to an existing packed scene without
+reimporting geometry:
+
+```text
+blender --background SOURCE.blend --threads 2 --python-exit-code 1 --python tools/relight_terrain_scene.py -- MATERIAL_REPORT.json SELECTED.blend --terrain-textures SELECTION.json
+blender --background SELECTED.blend --threads 2 --python-exit-code 1 --python tools/check_terrain_texture_variant_scene.py -- MATERIAL_REPORT.json SELECTION.json AUDIT.json
+```
+
+The schema-one selection manifest binds each derivative to a material property,
+original file hash, dimensions, color space and sampling settings. Only macro
+color and the seven terrain detail colors can change. Derivatives must be 2x RGB;
+fields and lush blend alpha still sample the original RGBA image at the same UVs.
+Normals, splat masks and angle controls retain their source images. Large macros
+can use a grid of overlapping sampling tiles; periodic outer gutters preserve
+repeat filtering. The audit reopens the saved scene and checks bindings, alpha
+connections, packed images, texture dimensions and unchanged geometry/UV hashes.
+It does not establish rendered appearance or total GPU memory demand. The
+original importer also accepts `--terrain-textures SELECTION.json`.
+
 Render a material-preserving scene into small WebP tiles **before browsing**. Static files avoid waiting for scene renders while panning or zooming. Supply your Blender executable with `--blender` when it is outside the default location:
 
 ```powershell

@@ -15,7 +15,7 @@ from mathutils import Euler, Matrix, Quaternion, Vector
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from prepare_material_blend_view import prepare_view
 from unity_normal_map import build_dxt5nm_encoded
-from terrain_detail import build_surface, texture_color_space
+from terrain_detail import build_surface, build_variant_macro, texture_color_space
 from render_safety import guarded_render
 
 
@@ -113,7 +113,7 @@ def load_image(path, color_space):
     return image
 
 
-def make_material(record, image_cache):
+def make_material(record, image_cache, texture_variant=None):
     mat = bpy.data.materials.new(record["name"])
     mat.use_nodes = True
     nodes, links = mat.node_tree.nodes, mat.node_tree.links
@@ -156,8 +156,14 @@ def make_material(record, image_cache):
         base_color = tex.outputs["Color"]
         if terrain_shader:
             tex.interpolation = "Linear"
+            if texture_variant:
+                asset = texture_variant.texture_for(record, base, "macro")
+                if asset:
+                    base_color = build_variant_macro(nodes, links, asset, translated.outputs["Vector"], load_image)
+                mat["terrainTextureVariant"] = str(texture_variant.path)
+                mat["terrainTextureVariantSha256"] = texture_variant.sha256
             base_color, terrain_normal = build_surface(nodes, links, record, uv.outputs["UV"],
-                                                       base_color, load_image)
+                                                       base_color, load_image, texture_variant=texture_variant)
             if terrain_normal is not None:
                 links.new(terrain_normal, surface.inputs["Normal"])
         colors = {item["property"]: item["value"] for item in record.get("colors", [])}
@@ -178,6 +184,8 @@ def make_material(record, image_cache):
             # In opaque URP materials, texture alpha commonly carries smoothness;
             # do not interpret that packed channel as transparency.
             links.new(tex.outputs["Alpha"], surface.inputs["Alpha"])
+        elif terrain_shader and texture_variant and asset:
+            nodes.remove(tex)
     normal = next((t for t in textures if t.get("export") and
                    (t.get("property") in ("_BumpMap", "_Normal", "_NormalMap") or
                     re.search(r"_n(?:ormal)?$", t.get("textureName", ""), re.I))), None)
@@ -215,7 +223,7 @@ def make_material(record, image_cache):
     return mat
 
 
-def build(scene_file, report_file, output, map_id):
+def build(scene_file, report_file, output, map_id, texture_variant=None):
     scene_data = json.loads(Path(scene_file).read_text(encoding="utf-8"))
     report = json.loads(Path(report_file).read_text(encoding="utf-8"))
     manifest = json.loads((Path(scene_file).parents[1] / "manifest.json").read_text(encoding="utf-8"))
@@ -272,7 +280,7 @@ def build(scene_file, report_file, output, map_id):
         for material_ref in assigned:
             key = ident(material_ref)
             if key not in material_cache:
-                material_cache[key] = make_material(material_rows[key], image_cache)
+                material_cache[key] = make_material(material_rows[key], image_cache, texture_variant)
             mats.append(material_cache[key])
         mesh_path = Path(scene_file).parent / record["file"]
         cache_key = (record["file"], tuple(ident(m) for m in assigned))
@@ -382,7 +390,15 @@ def build(scene_file, report_file, output, map_id):
 
 
 if __name__ == "__main__":
+    import argparse
+    from terrain_texture_variant import TerrainTextureVariant
     args = sys.argv[sys.argv.index("--") + 1:]
-    if len(args) != 4:
-        raise SystemExit("Expected geometry-scene.json material-report.json output-directory map-id after --")
-    build(*args)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("scene")
+    parser.add_argument("report")
+    parser.add_argument("output")
+    parser.add_argument("map_id")
+    parser.add_argument("--terrain-textures")
+    options = parser.parse_args(args)
+    variant = TerrainTextureVariant(options.terrain_textures) if options.terrain_textures else None
+    build(options.scene, options.report, options.output, options.map_id, variant)

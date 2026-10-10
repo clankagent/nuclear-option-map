@@ -125,6 +125,52 @@ def texture_color_space(texture):
     } else "sRGB"
 
 
+def build_variant_macro(nodes, links, asset, uv, load_image):
+    """Sample an explicitly validated RGB macro, retaining source UV placement."""
+    color_space = "sRGB" if asset["colorSpace"] == 1 else "Non-Color"
+    if not asset.get("macroTiles"):
+        tex = nodes.new("ShaderNodeTexImage")
+        tex.image = load_image(asset["rgbExport"], color_space)
+        tex.extension = "REPEAT"
+        tex.interpolation = "Linear"
+        tex.label = "Selected terrain RGB · macro"
+        links.new(uv, tex.inputs["Vector"])
+        return tex.outputs["Color"]
+    import json
+    spec = json.loads(Path(asset["macroTileSpec"]).read_text(encoding="utf-8-sig"))
+    width, height = spec["size"]
+    graph = _Graph(nodes, links)
+    x, y, z = graph.split(uv)
+    # The original image repeats. Tile selection must also wrap negative UVs.
+    wrapped = graph.combine(graph.math("FRACT", x), graph.math("FRACT", y), z)
+    x, y, _ = graph.split(wrapped)
+
+    def row_mix(colors, coord, thresholds):
+        value = colors[0]
+        for color, threshold in zip(colors[1:], thresholds):
+            value = graph.mix(value, color, graph.math("GREATER_THAN", coord, threshold))
+        return value
+
+    rows = []
+    for row in reversed(range(len(spec["yCuts"]) + 1)):
+        colors = []
+        for column in range(len(spec["xCuts"]) + 1):
+            tile = next(t for t in asset["macroTiles"] if t["x"] == column and t["y"] == row)
+            left, top, right, bottom = tile["box"]
+            tw, th = right-left, bottom-top
+            local = graph.vector("ADD", graph.vector("MULTIPLY", wrapped, (width/tw, height/th, 1)),
+                                 (-left/tw, -(height-bottom)/th, 0))
+            tex = nodes.new("ShaderNodeTexImage")
+            tex.image = load_image(tile["path"], color_space)
+            tex.extension = "EXTEND"
+            tex.interpolation = "Linear"
+            tex.label = f"Selected terrain RGB · macro tile {column},{row}"
+            links.new(local, tex.inputs["Vector"])
+            colors.append(tex.outputs["Color"])
+        rows.append(row_mix(colors, x, [cut/width for cut in spec["xCuts"]]))
+    return row_mix(rows, y, [(height-cut)/height for cut in reversed(spec["yCuts"])])
+
+
 def overlay_channel(macro, detail):
     """CPU reference for the independently implemented node formula."""
     return 2 * macro * detail if macro <= .5 else 1 - 2 * (1 - macro) * (1 - detail)
@@ -183,13 +229,14 @@ class _Graph:
         return self.vector("ADD", a, self.vector("SCALE", self.vector("SUBTRACT", b, a), t))
 
 
-def build_surface(nodes, links, record, uv0, macro_color, load_image, *, normals=True):
+def build_surface(nodes, links, record, uv0, macro_color, load_image, *, normals=True, texture_variant=None):
     """Return (linear base-color socket, world normal socket or None).
 
     uv0 MUST be the mesh's original first UV set. The color/normal core follows
     source material references, including alpha and red-mask semantics. Small
     procedural macro/splat UV jitter and clouds are intentionally omitted.
-    Missing detail assets return the macro unchanged. No upscale/noise is used.
+    Missing detail assets return the macro unchanged. Optional variants replace
+    only selected RGB; original fields/lush alpha remains a separate sampler.
     """
     graph = _Graph(nodes, links)
     textures = {t.get("property"): t for t in record.get("textures", []) if t.get("export")}
@@ -205,9 +252,20 @@ def build_surface(nodes, links, record, uv0, macro_color, load_image, *, normals
     uv = {frequency: graph.vector("SCALE", detail_uv, frequency) for frequency in (100, 410, 1800)}
     def sample(key, coords):
         record_tex = reference(key)
-        tex = nodes.new("ShaderNodeTexImage"); tex.image = load_image(record_tex["export"], texture_color_space(record_tex))
-        tex.extension = "REPEAT"; tex.interpolation = "Linear"; tex.label = "Source terrain · " + key
+        asset = texture_variant.texture_for(record, record_tex, "detail") if texture_variant else None
+        tex = nodes.new("ShaderNodeTexImage")
+        tex.image = load_image(asset["rgbExport"] if asset else record_tex["export"], texture_color_space(record_tex))
+        tex.extension = "REPEAT"; tex.interpolation = "Linear"
+        tex.label = ("Selected terrain RGB · " if asset else "Source terrain · ") + key
         links.new(coords, tex.inputs["Vector"])
+        if asset and key in ("fields", "lush"):
+            alpha = nodes.new("ShaderNodeTexImage")
+            alpha.image = load_image(record_tex["export"], texture_color_space(record_tex))
+            alpha.extension = "REPEAT"; alpha.interpolation = "Linear"
+            alpha.label = "Original terrain alpha · " + key
+            links.new(coords, alpha.inputs["Vector"])
+            from types import SimpleNamespace
+            return SimpleNamespace(outputs={"Color": tex.outputs["Color"], "Alpha": alpha.outputs["Alpha"]})
         return tex
     masks = {k: graph.split(sample("_splat_" + k, uv0).outputs["Color"])[0] for k in ("grass", "rock", "fields", "lush")}
     angle = graph.split(sample("field_angle", graph.vector("SCALE", uv0, 10)).outputs["Color"])[0]
