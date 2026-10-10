@@ -20,6 +20,20 @@ from render_safety import (configure_cropped_gpu_trial,
                            validate_cropped_gpu_trial, cuda_queue_plan, comparison_subset)
 
 
+def camera_window(manifest, center_x=None, center_z=None, meters=None):
+    """Only reduce the viewing window inside the hash-bound physical crop."""
+    values = (center_x, center_z, meters)
+    if all(v is None for v in values):
+        return manifest['centerX'], manifest['centerZ'], manifest['footprintMeters']
+    if any(v is None for v in values) or not all(math.isfinite(v) for v in values) or meters <= 0:
+        raise ValueError('Require three finite window values and positive footprint')
+    source_half = manifest['footprintMeters'] / 2
+    for center, original in ((center_x, manifest['centerX']), (center_z, manifest['centerZ'])):
+        if abs(center-original) + meters/2 > source_half + 1e-7:
+            raise ValueError('Camera window must lie inside the original prepared footprint')
+    return center_x, center_z, meters
+
+
 def inspect_scene(bpy, manifest):
     """Inspect loaded inputs before querying or initializing any GPU backend."""
     unsupported = []
@@ -101,6 +115,9 @@ def main(argv):
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--edge", type=int, default=256)
+    parser.add_argument("--window-center-x", type=float)
+    parser.add_argument("--window-center-z", type=float)
+    parser.add_argument("--window-meters", type=float)
     parser.add_argument("--samples", type=int, default=1)
     parser.add_argument("--sample-offset", type=int)
     parser.add_argument("--linear-exr", action="store_true")
@@ -144,6 +161,11 @@ def main(argv):
         parser.error("Cropped scene must have an orthographic camera")
     if abs(scene.camera.data.ortho_scale-manifest["footprintMeters"]) > .01:
         parser.error("Camera does not match cropped scene footprint")
+    center_x, center_z, footprint = camera_window(manifest, args.window_center_x,
+                                                 args.window_center_z, args.window_meters)
+    scene.camera.location.x += center_x-manifest['centerX']
+    scene.camera.location.y -= center_z-manifest['centerZ']
+    scene.camera.data.ortho_scale = footprint
     scene.cycles.seed = 0
     scene.render.filter_size = 1.0
     scene.render.image_settings.file_format = "OPEN_EXR" if args.linear_exr else "PNG"
@@ -218,9 +240,9 @@ def main(argv):
         settings = {"scene": str(source), "sceneSha256": source_hash,
                     "cropManifest": str(args.manifest.resolve()), "inventory": inventory,
                     "planning": planning, "deviceSelection": selected,
-                    "centerX": manifest["centerX"], "centerZ": manifest["centerZ"],
-                    "footprintMeters": manifest["footprintMeters"],
-                    "metersPerPixel": manifest["footprintMeters"] / args.edge,
+                    "centerX": center_x, "centerZ": center_z,
+                    "footprintMeters": footprint,
+                    "metersPerPixel": footprint / args.edge,
                     "textureReductions": manifest.get("imageReductions", []),
                     "sourceFidelityAccepted": False, **scene_evidence(scene)}
         (output / "settings.json").write_text(json.dumps(settings, indent=2))

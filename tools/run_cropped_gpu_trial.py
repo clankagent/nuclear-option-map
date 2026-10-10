@@ -22,6 +22,10 @@ def main():
     parser.add_argument("--candidate", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--samples", type=int, choices=range(1, 17), default=1)
+    parser.add_argument("--edge", type=int, choices=range(1, 257), default=256)
+    parser.add_argument("--window-center-x", type=float)
+    parser.add_argument("--window-center-z", type=float)
+    parser.add_argument("--window-meters", type=float)
     parser.add_argument("--sample-offset", type=int)
     parser.add_argument("--linear-exr", action="store_true")
     parser.add_argument("--cpu-control", action="store_true")
@@ -56,7 +60,13 @@ def main():
                "--debug-cycles", "--verbose", "2" if prior or args.cpu_control else "4", "--python-exit-code", "1", "--python",
                str(Path(__file__).with_name("render_cropped_gpu_trial.py")), "--",
                "--manifest", str(manifest), "--output", str(output),
-               "--edge", "256", "--samples", str(args.samples), "--queue-states", str(args.queue_states)]
+               "--edge", str(args.edge), "--samples", str(args.samples), "--queue-states", str(args.queue_states)]
+    window = (args.window_center_x, args.window_center_z, args.window_meters)
+    if any(v is not None for v in window):
+        if any(v is None for v in window):
+            parser.error("Provide all three camera window values")
+        for name, value in zip(("--window-center-x", "--window-center-z", "--window-meters"), window):
+            command.extend([name, str(value)])
     if args.cpu_control:
         command.append("--cpu-control")
     if subset:
