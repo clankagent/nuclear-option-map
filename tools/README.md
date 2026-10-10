@@ -147,6 +147,24 @@ uv run python tests/test_render_safety.py
 uv run python tests/test_uniform_water.py
 ```
 
+### Precomputed regional satellite detail
+
+Generate a lossless close-up from an exported scene before choosing the detailed map's pixel spacing:
+
+```text
+blender --background SCENE.blend --threads 2 --python-exit-code 1 --python tools/render_quality_probe.py -- --x 12670 --z 7600 --world-width 6700 --world-depth 3500 --width 4096 --samples 128 --output PROBE
+```
+
+The comparison keeps source materials and lighting, uses north-up square pixels, and writes `raw.png` plus camera/render evidence without saving the scene. It uses CPU rendering with two threads, no denoising, a maximum 4096-pixel image edge and an exclusive render slot. The explicit comparison permits up to 256 samples; ordinary satellite baking retains its existing sample limit. Compare matched world regions at native image pixels before applying a denoiser or choosing the delivery resolution.
+
+`prepare_quality_patch.py` packages a completed north-up raw quality probe into the next raster level without rendering or modifying the existing dataset:
+
+```text
+uv run --script tools/prepare_quality_patch.py --source INPUT/raw.png --proof INPUT/proof.json --manifest BASE/pyramid.json --manifest-url https://example.org/maps/base/pyramid.json --world-width 81920 --world-depth 81920 --output CANDIDATE
+```
+
+Use a fresh output directory and the actual URL of the base manifest. Existing overview and tile references resolve against that URL, retaining their version parameters. The candidate contains lossless WebP tiles and a manifest with regional `coverage`; only tiles whose interiors, gutters and Lanczos filter support fit inside the source are advertised. Source pixel spacing must be at least as fine as the candidate level. The proof must describe a completed raw probe, its image dimensions and north-up orientation. Optional camera rotation, location, scale and pixel-aspect evidence must agree with that footprint; optional source byte count and SHA-256 must match the supplied image. Rounded orthographic image height determines the actual vertical footprint. Private `provenance.json` records mixed base/region sampling. Serve the candidate as static files and inspect it before selecting it for a viewer; packaging does not promote imagery.
+
 ### Smaller 3D derivatives
 
 Create a smaller 3D derivative from those heights with Blender:

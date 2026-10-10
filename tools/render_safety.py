@@ -15,15 +15,19 @@ GPU_TEXTURE_BUDGET = 256 * 1024 * 1024
 GPU_SCENE_BUDGET = 512 * 1024 * 1024
 GPU_MAX_SECONDS = 1.0
 CPU_MAX_EDGE = 4100  # 4096px chunk + two 2px exterior gutters.
+CPU_QUALITY_MAX_SAMPLES = 256  # Explicit, single-view quality comparisons only.
 LOCK_PATH = Path(__file__).resolve().parents[1] / "work" / "render-safety.lock"
 SCHEDULE_LOCK_PATH = LOCK_PATH.with_name("render-scheduler.lock")
 
 
-def render_profile(device=DEFAULT_DEVICE, samples=DEFAULT_SAMPLES, threads=DEFAULT_THREADS):
+def render_profile(device=DEFAULT_DEVICE, samples=DEFAULT_SAMPLES, threads=DEFAULT_THREADS, *, quality_cpu=False):
     if device not in {"cpu", "gpu"}:
         raise ValueError("Render device must be cpu or gpu")
-    if not isinstance(samples, int) or not 1 <= samples <= 16:
-        raise ValueError("Render samples must be 1..16")
+    if quality_cpu and device != "cpu":
+        raise ValueError("High-quality sample allowance is CPU-only")
+    sample_limit = CPU_QUALITY_MAX_SAMPLES if quality_cpu else 16
+    if not isinstance(samples, int) or not 1 <= samples <= sample_limit:
+        raise ValueError(f"Render samples must be 1..{sample_limit}")
     if not isinstance(threads, int) or not 1 <= threads <= 2:
         raise ValueError("Render CPU threads must be 1..2")
     return {"engine": "CYCLES", "device": device, "samples": samples,
@@ -62,9 +66,10 @@ def validate_gpu_budget(images, render_edge, *, scene_bound_bytes=None, time_lim
 
 def configure_scene(scene, *, device=DEFAULT_DEVICE, samples=DEFAULT_SAMPLES,
                     threads=DEFAULT_THREADS, images=(), render_edge=None,
-                    gpu_scene_bound_bytes=None, gpu_time_limit_seconds=None):
+                    gpu_scene_bound_bytes=None, gpu_time_limit_seconds=None,
+                    quality_cpu=False):
     """Call before render setup. Pass bpy.data.images for an explicit GPU request."""
-    profile = render_profile(device, samples, threads)
+    profile = render_profile(device, samples, threads, quality_cpu=quality_cpu)
     if render_edge is not None and (render_edge < 1 or render_edge > CPU_MAX_EDGE):
         raise ValueError(f"Render edge must be 1..{CPU_MAX_EDGE} pixels to bound memory")
     if device == "gpu":
@@ -89,7 +94,7 @@ def configure_scene(scene, *, device=DEFAULT_DEVICE, samples=DEFAULT_SAMPLES,
     return profile
 
 
-def guarded_render(scene=None, *, samples=DEFAULT_SAMPLES, threads=DEFAULT_THREADS):
+def guarded_render(scene=None, *, samples=DEFAULT_SAMPLES, threads=DEFAULT_THREADS, quality_cpu=False):
     """CPU-only guarded one-shot helper for standalone Blender tools."""
     import bpy
     scene = scene or bpy.context.scene
@@ -97,7 +102,7 @@ def guarded_render(scene=None, *, samples=DEFAULT_SAMPLES, threads=DEFAULT_THREA
     with render_slot():
         lower_process_priority()
         configure_scene(scene, samples=samples, threads=threads,
-                        images=bpy.data.images, render_edge=edge)
+                        images=bpy.data.images, render_edge=edge, quality_cpu=quality_cpu)
         return bpy.ops.render.render(write_still=True)
 
 

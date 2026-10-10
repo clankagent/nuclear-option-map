@@ -80,6 +80,19 @@ class RenderSafetyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "bound memory"):
             safety.configure_scene(scene(), render_edge=8192)
 
+    def test_quality_allowance_requires_cpu_and_retains_resource_guards(self):
+        target = scene()
+        safety.configure_scene(target, samples=128, quality_cpu=True, render_edge=4096)
+        self.assertEqual(target.cycles.samples, 128)
+        self.assertEqual(target.cycles.device, "CPU")
+        self.assertEqual(target.render.threads, 2)
+        self.assertFalse(target.cycles.use_denoising)
+        for kwargs in ({"samples": 257}, {"samples": 128, "threads": 3},
+                       {"samples": 128, "render_edge": 8192},
+                       {"device": "gpu", "samples": 128}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                safety.configure_scene(scene(), quality_cpu=True, **kwargs)
+
     def test_slot_excludes_another_owner_and_releases(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "renderer.lock"
