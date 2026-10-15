@@ -2,6 +2,7 @@ import { defineConfig } from 'vite-plus';
 import { cpSync, existsSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { createMapStaticMiddleware } from './tools/map-static-middleware';
+import { createCandidatePreviewProxy } from './tools/candidate-preview-proxy';
 export { mapRasterCacheControl } from './tools/map-static-middleware';
 
 export default defineConfig({
@@ -20,6 +21,8 @@ export default defineConfig({
   plugins: [{
     name: 'serve-generated-map-assets',
     configureServer(server) {
+      const candidate = createCandidatePreviewProxy(process.env.NUCLEAR_MAP_CANDIDATE_PREVIEW_ORIGIN);
+      if (candidate) server.middlewares.use(candidate);
       server.middlewares.use(createMapStaticMiddleware(resolve(server.config.publicDir, 'maps')));
     },
   }, {
