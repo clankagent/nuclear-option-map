@@ -4,7 +4,7 @@ A portable map core and browser map viewer for Nuclear Option. Rust provides map
 
 Game files and extracted assets are not included. The offline extraction tools read a local client data directory; the viewer uses the resulting map manifest and images. No game process is required for image-based maps.
 
-The built-in viewer supports Heartland and Ignus Archipelago when extracted from a compatible client. It provides cursor-anchored wheel zoom, pointer pan, touch pinch, keyboard navigation, original sprite/tinted modes, and the game's 10 km grid. Grid labels can appear along the edges, within cells, or be hidden. World coordinates use centered X/Z meters: +X east and +Z north.
+The built-in viewer supports Heartland and Ignus Archipelago when extracted from a compatible client. It provides cursor-anchored wheel zoom, pointer pan, touch pinch, keyboard navigation, original sprite/tinted modes, and the game's 10 km grid. Zoom ranges from 0.25× to 1024× the aspect-preserving fit. Closer zoom enlarges the available imagery; it does not add source detail. Grid labels can appear along the edges, within cells, or be hidden. World coordinates use centered X/Z meters: +X east and +Z north.
 
 ## Build and run
 

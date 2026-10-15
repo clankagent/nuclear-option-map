@@ -26,7 +26,7 @@ fn pair(x: f64, y: f64) -> Result<[f64; 2]> {
     }
 }
 
-/// A viewport with zoom clamped to 0.25–64 times the aspect-preserving fit.
+/// A viewport with zoom clamped to 0.25–1024 times the aspect-preserving fit.
 /// Resize retains the world center and relative zoom. Failed changes are atomic.
 #[derive(Debug, Clone)]
 pub struct MapViewport {
@@ -106,7 +106,7 @@ impl MapViewport {
     pub fn zoom_at(&mut self, factor: f64, x: f64, y: f64) -> Result<()> {
         positive(factor)?;
         let anchor = self.screen_to_world(x, y)?;
-        let zoom = (self.zoom * factor).clamp(0.25, 64.0);
+        let zoom = (self.zoom * factor).clamp(0.25, 1024.0);
         let scale = positive(self.fit_scale * zoom)?;
         let center = pair(
             anchor[0] - (x - self.width / 2.0) / scale,
@@ -150,10 +150,35 @@ mod tests {
         v.zoom_at(4.0, 73.0, 93.0).unwrap();
         close(v.screen_to_world(73.0, 93.0).unwrap(), before);
         v.zoom_at(f64::MAX, 73.0, 93.0).unwrap();
-        assert_eq!(v.zoom(), 64.0);
+        assert_eq!(v.zoom(), 1024.0);
+        close(v.screen_to_world(73.0, 93.0).unwrap(), before);
         v.zoom_at(f64::MIN_POSITIVE, 73.0, 93.0).unwrap();
         assert_eq!(v.zoom(), 0.25);
         close(v.screen_to_world(73.0, 93.0).unwrap(), before);
+    }
+    #[test]
+    fn large_zoom_preserves_navigation_precision() {
+        let mut v = MapViewport::new(131072.0, 81920.0, 1440.0, 900.0).unwrap();
+        let anchor = [1273.25, 157.75];
+        let world = v.screen_to_world(anchor[0], anchor[1]).unwrap();
+        v.zoom_at(1024.0, anchor[0], anchor[1]).unwrap();
+        assert_eq!(v.zoom(), 1024.0);
+        close(v.screen_to_world(anchor[0], anchor[1]).unwrap(), world);
+        close(v.world_to_screen(world[0], world[1]).unwrap(), anchor);
+        v.pan(319.5, -223.25).unwrap();
+        close(
+            v.world_to_screen(world[0], world[1]).unwrap(),
+            [anchor[0] + 319.5, anchor[1] - 223.25],
+        );
+        let center = [v.center_x(), v.center_z()];
+        v.resize(720.0, 450.0).unwrap();
+        assert_eq!(v.zoom(), 1024.0);
+        close([v.center_x(), v.center_z()], center);
+        let screen = v.world_to_screen(world[0], world[1]).unwrap();
+        close(v.screen_to_world(screen[0], screen[1]).unwrap(), world);
+        v.fit();
+        assert_eq!(v.zoom(), 1.0);
+        close([v.center_x(), v.center_z()], [0.0, 0.0]);
     }
     #[test]
     fn pan_resize_fit() {
