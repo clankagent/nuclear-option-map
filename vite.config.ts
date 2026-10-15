@@ -17,7 +17,9 @@ export default defineConfig({
     // Serve/refetch them normally without enrolling every directory in HMR watching.
     watch: { ignored: ['**/work/**', '**/demo/public/maps/**'] },
   },
-  build: { outDir: '../dist/demo', emptyOutDir: true, copyPublicDir: false },
+  build: { outDir: '../dist/demo', emptyOutDir: true, copyPublicDir: false,
+    rollupOptions: { input: { map: resolve('demo/index.html'), status: resolve('demo/status/index.html') } },
+  },
   plugins: [{
     name: 'serve-generated-map-assets',
     configureServer(server) {

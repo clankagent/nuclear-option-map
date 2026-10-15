@@ -91,6 +91,9 @@ input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: var
 [hidden] { display: none !important; }
 
 .menus { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.status-link { color: var(--muted); text-decoration: none; padding: 8px 10px; border-radius: 4px; }
+.status-link:hover { color: var(--text); background: var(--field); }
+.status-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .pop { position: relative; color: var(--muted); }
 .pop summary {
   display: inline-flex;

@@ -1,0 +1,15 @@
+# Project status
+
+The demo's `/status/` page shows the current job, its measured progress and remaining stages. Open it from the map toolbar. It reads a compact version-one JSON snapshot at `/maps/render-status/project-status.json`; no render or retry controls are exposed. Generated snapshots remain local and are not packaged with source.
+
+Reuse the page by changing the data producer's job configuration, not the UI. The contract contains `job` identity/title, `state`, current `stage`, ordered `stages`, `progress`, named `groups` with per-level counts, source/census timestamps, collector health, and optional resources/billing/detail links. The local producer configuration and operating instructions live with that deployment; the page has no service names or machine paths.
+
+Progress counts are provisional output observations. Reaching100% does not imply verification, appearance acceptance or delivery. A complete state requires explicit completion evidence from the producer. The page retains last-good data during failed requests and distinguishes old source measurements from a fresh JSON write. Source and progress measurement ages are shown separately. Refresh fetches a new snapshot; it does not start a job. Automatic polling pauses in a hidden tab.
+
+A minimal producer snapshot looks like this (illustrative values):
+
+```json
+{"schemaVersion":1,"job":{"id":"example","title":"Build map tiles","subtitle":"Example job"},"state":"running","stage":{"id":"build","label":"Build tiles"},"generatedAt":"2026-01-01T12:00:00Z","sourceGeneratedAt":"2026-01-01T12:00:00Z","censusGeneratedAt":"2026-01-01T12:00:00Z","collector":{"ok":true,"lastAttemptAt":"2026-01-01T12:00:00Z","error":null,"staleAfterSeconds":180},"progress":{"unit":"tiles","completed":5,"total":10,"measuredAt":"2026-01-01T12:00:00Z","censusIntervalSeconds":120},"stages":[{"id":"build","label":"Build tiles","state":"active"}],"groups":[],"completion":{"datasetComplete":false}}
+```
+
+`running`, `blocked`, `review`, and `complete` are supported job states; stage states are `pending`, `active`, and `complete`. Optional values can be omitted or null. Counts must be nonnegative numbers. Detail links accept only HTTP(S) or root-relative paths. Text from the snapshot is rendered as text, never HTML. This view is a deployment companion; the map library itself does not require a status producer.

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Project status · Nuclear Option Map</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to status</a>
+    <div class="shell">
+      <nav class="rail" aria-label="Project">
+        <p class="brand">Nuclear Option Map</p>
+        <ul>
+          <li><a href="/status/" aria-current="page">Status</a></li>
+          <li><a href="/">Open map</a></li>
+        </ul>
+        <p class="rail-foot"><a href="https://github.com/clankagent/nuclear-option-map" rel="noopener noreferrer">GitHub</a></p>
+      </nav>
+
+      <main id="main" class="main" tabindex="-1">
+        <header class="top">
+          <div>
+            <p class="eyebrow">Current work</p>
+            <h1 id="job-title">Project status</h1>
+            <p id="job-subtitle" class="muted"></p>
+          </div>
+          <div class="refresh">
+            <button id="refresh" type="button">Refresh</button>
+            <p id="freshness" class="muted small">Loading…</p>
+          </div>
+        </header>
+
+        <div id="banner" class="banner" role="status" hidden></div>
+
+        <div class="cols">
+          <div class="col-main">
+            <section class="now" aria-labelledby="now-h">
+              <h2 id="now-h" class="visually-hidden">Current stage</h2>
+              <p class="state-line"><span id="state-pill" class="pill">Loading</span></p>
+              <p id="stage-label" class="headline">Waiting for data</p>
+              <div class="measure">
+                <p class="big"><span id="pct">–</span></p>
+                <p id="counts" class="muted"></p>
+              </div>
+              <div id="bar" class="bar" role="progressbar" aria-label="Provisional progress" aria-valuemin="0" aria-valuemax="100">
+                <span id="bar-fill"></span>
+              </div>
+              <p class="note">Counts are provisional until verification; final dataset completion is separate.</p>
+              <p id="basis" class="muted small"></p>
+            </section>
+
+            <section aria-labelledby="maps-h">
+              <h2 id="maps-h">Work by group</h2>
+              <div id="groups" class="groups"></div>
+            </section>
+
+            <section aria-labelledby="pipe-h">
+              <h2 id="pipe-h">Pipeline</h2>
+              <ol id="stages" class="stages"></ol>
+              <details class="verification-details"><summary>Verification and delivery</summary><dl id="completion" class="completion"></dl></details>
+            </section>
+          </div>
+
+          <aside class="col-side" aria-label="Resources and billing">
+            <section aria-labelledby="res-h">
+              <h2 id="res-h">Resources</h2>
+              <dl id="resources" class="kv"></dl>
+            </section>
+            <section id="billing-sec" aria-labelledby="bill-h" hidden>
+              <h2 id="bill-h">Billing</h2>
+              <dl id="billing" class="kv"></dl>
+              <p id="billing-note" class="muted small"></p>
+            </section>
+            <section id="warn-sec" aria-labelledby="warn-h" hidden>
+              <h2 id="warn-h">Notes</h2>
+              <ul id="warnings" class="plain"></ul>
+            </section>
+            <section aria-labelledby="src-h">
+              <h2 id="src-h">Source</h2>
+              <dl id="source" class="kv"></dl>
+            </section>
+          </aside>
+        </div>
+      </main>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
