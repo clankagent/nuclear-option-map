@@ -96,6 +96,8 @@ Check the patch receipt, exact replacement coordinates, rebuilt parent coordinat
 
 Use a fresh versioned URL for the candidate. Inspect the changed area at the finest resolution, several lower zooms and the overview. Pan across the patch boundary. Compare the surrounding roofs, roads, terrain and previously accepted repairs at matched world scale. Check gutters, color, shadow continuity and tile loading.
 
+A viewer can serve only the changed closure without copying baseline files. Keep each level's immutable baseline `urlTemplate` and add optional `urlOverrides`, for example `{"416/165":"patch-v2/10/416/165.webp"}`. Keys are canonical nonnegative `x/y` coordinates inside that level and its declared coverage; all raster levels together accept at most 100,000 overrides per pyramid. Override URLs resolve relative to the catalog, allow HTTP, HTTPS or file URLs, and select complete tile files with the same core/gutter dimensions as the baseline. Every other coordinate keeps its baseline URL. Include changed parents and use the refreshed overview as the candidate's `image`. Publish changed files at fresh versioned URLs before the candidate descriptor. Load the new descriptor through `setMap` to replace the viewer's tile cache; do not mutate an active descriptor in place.
+
 Only then update a viewer variant or active descriptor through its normal publication process. Retain the previous descriptor for rollback. The patch tool's completion receipt confirms its CPU work; it does not grant scene, coverage, appearance or publication acceptance.
 
 ## Verification

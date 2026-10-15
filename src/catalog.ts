@@ -1,7 +1,7 @@
 import type { TopographyPyramid } from './topo-style';
 /** Tile coordinates, with exclusive right/bottom edges. Rectangles may overlap. */
 export interface TileCoverage { x: number; y: number; columns: number; rows: number }
-export interface PyramidLevel { level: number; width: number; height: number; columns: number; rows: number; urlTemplate: string; coverage?: TileCoverage[] }
+export interface PyramidLevel { level: number; width: number; height: number; columns: number; rows: number; urlTemplate: string; coverage?: TileCoverage[]; /** Exact x/y URLs for changed tiles; other coordinates use urlTemplate. */ urlOverrides?: Record<string, string> }
 export interface TilePyramid { tileSize: number; gutter?: number; levels: PyramidLevel[] }
 /** Missing coverage means a complete level; an empty array means no tiles. */
 export function tileAvailable(level: PyramidLevel, x: number, y: number): boolean {
@@ -65,6 +65,7 @@ export function validateMap(value: unknown): MapDefinition {
     const p = m.tiles;
     if (!p || !Number.isSafeInteger(p.tileSize) || p.tileSize < 64 || p.tileSize > 2048 || !Array.isArray(p.levels) || !p.levels.length || p.levels.length > 20) throw new TypeError('Invalid tile pyramid');
     if (p.gutter !== undefined && (!Number.isSafeInteger(p.gutter) || p.gutter < 0 || p.gutter > 8 || p.tileSize + p.gutter * 2 > 2048)) throw new TypeError('Invalid tile gutter');
+    let overrideCount = 0;
     const levels = p.levels.map((l, index) => {
       if (!l || l.level !== index || !Number.isSafeInteger(l.width) || !Number.isSafeInteger(l.height) || l.width < 1 || l.height < 1 || l.width > 1048576 || l.height > 1048576 || l.columns !== Math.ceil(l.width / p.tileSize) || l.rows !== Math.ceil(l.height / p.tileSize) || typeof l.urlTemplate !== 'string' || !l.urlTemplate.includes('{x}') || !l.urlTemplate.includes('{y}')) throw new TypeError('Invalid pyramid level');
       if (index && (Math.ceil(l.width / 2) !== p.levels[index - 1].width || Math.ceil(l.height / 2) !== p.levels[index - 1].height)) throw new TypeError('Pyramid levels must double their dimensions');
@@ -74,7 +75,21 @@ export function validateMap(value: unknown): MapDefinition {
           if (!r || ![r.x, r.y, r.columns, r.rows].every(Number.isSafeInteger) || r.x < 0 || r.y < 0 || r.columns < 1 || r.rows < 1 || r.x + r.columns > l.columns || r.y + r.rows > l.rows) throw new TypeError('Invalid pyramid coverage rectangle');
         }
       }
-      return { ...l, ...(l.coverage !== undefined ? { coverage: l.coverage.map(r => ({ ...r })) } : {}) };
+      let urlOverrides: Record<string, string> | undefined;
+      if (l.urlOverrides !== undefined) {
+        if (!l.urlOverrides || typeof l.urlOverrides !== 'object' || Array.isArray(l.urlOverrides) || ![Object.prototype, null].includes(Object.getPrototypeOf(l.urlOverrides))) throw new TypeError('Invalid tile URL overrides');
+        const entries = Object.entries(l.urlOverrides);
+        overrideCount += entries.length;
+        if (overrideCount > 100000) throw new TypeError('Tile URL overrides exceed 100000 entries per pyramid');
+        for (const [key, url] of entries) {
+          if (!/^(0|[1-9]\d*)\/(0|[1-9]\d*)$/.test(key)) throw new TypeError('Invalid tile URL override coordinate');
+          const [x, y] = key.split('/').map(Number);
+          if (!Number.isSafeInteger(x) || !Number.isSafeInteger(y) || !tileAvailable(l, x, y)) throw new TypeError('Tile URL override is outside declared coverage');
+          if (typeof url !== 'string' || !url.trim()) throw new TypeError('Invalid tile URL override URL');
+        }
+        urlOverrides = Object.fromEntries(entries);
+      }
+      return { ...l, ...(l.coverage !== undefined ? { coverage: l.coverage.map(r => ({ ...r })) } : {}), ...(urlOverrides ? { urlOverrides } : {}) };
     });
     tiles = { tileSize: p.tileSize, gutter: p.gutter ?? 0, levels };
   }
@@ -101,6 +116,14 @@ export function validateMap(value: unknown): MapDefinition {
   }
   return { ...m, grid: { ...m.grid }, ...(tiles ? { tiles } : {}), ...(contours ? { contours } : {}), ...(topography ? { topography } : {}) };
 }
+function resolveTileOverrides(level: PyramidLevel, baseUrl: string) {
+  if (!level.urlOverrides) return;
+  for (const [key, value] of Object.entries(level.urlOverrides)) {
+    const url = new URL(value, baseUrl);
+    if (!['http:', 'https:', 'file:'].includes(url.protocol)) throw new TypeError('Unsupported tile URL override');
+    level.urlOverrides[key] = url.href;
+  }
+}
 export function validateMapCatalog(value: unknown, baseUrl: string): MapCatalog {
   const c = value as MapCatalog;
   if (!c || c.schemaVersion !== 1 || !Array.isArray(c.maps)) throw new TypeError('Expected a schema 1 map catalog');
@@ -115,6 +138,7 @@ export function validateMapCatalog(value: unknown, baseUrl: string): MapCatalog 
       const resolved = new URL(level.urlTemplate, baseUrl);
       if (!['http:', 'https:', 'file:'].includes(resolved.protocol)) throw new TypeError('Unsupported tile URL');
       level.urlTemplate = resolved.href.replace(/%7B/gi, '{').replace(/%7D/gi, '}');
+      resolveTileOverrides(level, baseUrl);
     }
     if (map.contours) for (const level of map.contours.levels) {
       const resolved = new URL(level.urlTemplate, baseUrl);
@@ -125,6 +149,7 @@ export function validateMapCatalog(value: unknown, baseUrl: string): MapCatalog 
       const resolved = new URL(level.urlTemplate, baseUrl);
       if (!['http:', 'https:', 'file:'].includes(resolved.protocol)) throw new TypeError('Unsupported topography URL');
       level.urlTemplate = resolved.href.replace(/%7B/gi, '{').replace(/%7D/gi, '}');
+      resolveTileOverrides(level, baseUrl);
     }
     return map;
   });

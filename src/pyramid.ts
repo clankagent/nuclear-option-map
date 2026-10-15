@@ -98,7 +98,7 @@ export class PyramidRenderer {
       const r = this.queue.shift()!, controller = new AbortController(); this.active.set(r.key, controller);
       this.inflight.add(controller);
       const l = this.pyramid.levels[r.level];
-      const url = l.urlTemplate.replaceAll('{z}', String(r.level)).replaceAll('{x}', String(r.x)).replaceAll('{y}', String(r.y));
+      const url = l.urlOverrides?.[`${r.x}/${r.y}`] ?? l.urlTemplate.replaceAll('{z}', String(r.level)).replaceAll('{x}', String(r.x)).replaceAll('{y}', String(r.y));
       void this.loader(url, controller.signal).then(image => {
         if (this.disposed || controller.signal.aborted) { image.dispose(); return; }
         const width = Math.min(this.pyramid.tileSize, l.width - r.x * this.pyramid.tileSize), height = Math.min(this.pyramid.tileSize, l.height - r.y * this.pyramid.tileSize);
