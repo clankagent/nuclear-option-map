@@ -212,6 +212,10 @@ uv run --script tools/prepare_quality_patch.py --source INPUT/raw.png --proof IN
 
 Use a fresh output directory and the actual URL of the base manifest. Existing overview and tile references resolve against that URL, retaining their version parameters. The candidate contains lossless WebP tiles and a manifest with regional `coverage`; only tiles whose interiors, gutters and Lanczos filter support fit inside the source are advertised. Source pixel spacing must be at least as fine as the candidate level. The proof must describe a completed raw probe, its image dimensions and north-up orientation. Optional camera rotation, location, scale and pixel-aspect evidence must agree with that footprint; optional source byte count and SHA-256 must match the supplied image. Rounded orthographic image height determines the actual vertical footprint. Private `provenance.json` records mixed base/region sampling. Serve the candidate as static files and inspect it before selecting it for a viewer; packaging does not promote imagery.
 
+### Updating existing satellite tiles
+
+Use `prepare_raster_patch.py` to stage completed finest-tile replacements and rebuild their dependent lower zoom tiles on the CPU. It preserves the baseline, includes neighboring filter support, refreshes the overview, and writes a separate static candidate and receipt. It does not render or promote imagery. See the [regional update workflow](../docs/satellite-patches.md) for render-scope selection, input formats, commands and acceptance checks. This differs from `prepare_quality_patch.py`, which adds a finer regional level.
+
 ### Smaller 3D derivatives
 
 Create a smaller 3D derivative from those heights with Blender:
