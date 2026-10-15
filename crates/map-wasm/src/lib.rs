@@ -50,6 +50,10 @@ impl MapViewport {
     pub fn zoom_at(&mut self, factor: f64, x: f64, y: f64) -> Result<(), JsValue> {
         self.inner.zoom_at(factor, x, y).map_err(error)
     }
+    #[wasm_bindgen(js_name = setMaxZoom)]
+    pub fn set_max_zoom(&mut self, max_zoom: f64) -> Result<(), JsValue> {
+        self.inner.set_max_zoom(max_zoom).map_err(error)
+    }
     pub fn scale(&self) -> f64 {
         self.inner.scale()
     }

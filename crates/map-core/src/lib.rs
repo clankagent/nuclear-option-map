@@ -26,7 +26,8 @@ fn pair(x: f64, y: f64) -> Result<[f64; 2]> {
     }
 }
 
-/// A viewport with zoom clamped to 0.25–1024 times the aspect-preserving fit.
+/// A viewport with zoom clamped to 0.25–max_zoom times the aspect-preserving fit.
+/// The configurable maximum defaults to 1024 and cannot exceed 1024.
 /// Resize retains the world center and relative zoom. Failed changes are atomic.
 #[derive(Debug, Clone)]
 pub struct MapViewport {
@@ -36,6 +37,7 @@ pub struct MapViewport {
     height: f64,
     fit_scale: f64,
     zoom: f64,
+    max_zoom: f64,
     center: [f64; 2],
 }
 impl MapViewport {
@@ -49,6 +51,7 @@ impl MapViewport {
             height,
             fit_scale: 1.0,
             zoom: 1.0,
+            max_zoom: 1024.0,
             center: [0.0, 0.0],
         };
         viewport.resize(width, height)?;
@@ -65,7 +68,7 @@ impl MapViewport {
         Ok(())
     }
     pub fn fit(&mut self) {
-        self.zoom = 1.0;
+        self.zoom = 1.0_f64.min(self.max_zoom);
         self.center = [0.0, 0.0];
     }
     pub fn scale(&self) -> f64 {
@@ -73,6 +76,19 @@ impl MapViewport {
     }
     pub fn zoom(&self) -> f64 {
         self.zoom
+    }
+    /// Reduce zoom about the canvas center, retaining the world center.
+    /// Raising the limit does not change the current zoom.
+    pub fn set_max_zoom(&mut self, max_zoom: f64) -> Result<()> {
+        positive(max_zoom)?;
+        if !(0.25..=1024.0).contains(&max_zoom) {
+            return Err(InvalidInput);
+        }
+        let zoom = self.zoom.min(max_zoom);
+        positive(self.fit_scale * zoom)?;
+        self.max_zoom = max_zoom;
+        self.zoom = zoom;
+        Ok(())
     }
     pub fn center_x(&self) -> f64 {
         self.center[0]
@@ -106,7 +122,7 @@ impl MapViewport {
     pub fn zoom_at(&mut self, factor: f64, x: f64, y: f64) -> Result<()> {
         positive(factor)?;
         let anchor = self.screen_to_world(x, y)?;
-        let zoom = (self.zoom * factor).clamp(0.25, 1024.0);
+        let zoom = (self.zoom * factor).clamp(0.25, self.max_zoom);
         let scale = positive(self.fit_scale * zoom)?;
         let center = pair(
             anchor[0] - (x - self.width / 2.0) / scale,
@@ -179,6 +195,32 @@ mod tests {
         v.fit();
         assert_eq!(v.zoom(), 1.0);
         close([v.center_x(), v.center_z()], [0.0, 0.0]);
+    }
+    #[test]
+    fn configurable_maximum_clamps_without_moving_center() {
+        let mut v = MapViewport::new(131072.0, 81920.0, 1440.0, 900.0).unwrap();
+        v.zoom_at(1024.0, 1273.25, 157.75).unwrap();
+        let center = [v.center_x(), v.center_z()];
+        v.set_max_zoom(400.0).unwrap();
+        assert_eq!(v.zoom(), 400.0);
+        close([v.center_x(), v.center_z()], center);
+        close(v.screen_to_world(720.0, 450.0).unwrap(), center);
+        v.zoom_at(f64::MAX, 123.0, 456.0).unwrap();
+        assert_eq!(v.zoom(), 400.0);
+        for bad in [0.0, 0.249, 1024.001, f64::NAN, f64::INFINITY] {
+            assert!(v.set_max_zoom(bad).is_err());
+            assert_eq!(v.zoom(), 400.0);
+            close([v.center_x(), v.center_z()], center);
+        }
+        v.set_max_zoom(1024.0).unwrap();
+        assert_eq!(v.zoom(), 400.0);
+        v.zoom_at(4.0, 720.0, 450.0).unwrap();
+        assert_eq!(v.zoom(), 1024.0);
+        v.set_max_zoom(0.25).unwrap();
+        v.fit();
+        assert_eq!(v.zoom(), 0.25);
+        v.zoom_at(100.0, 720.0, 450.0).unwrap();
+        assert_eq!(v.zoom(), 0.25);
     }
     #[test]
     fn pan_resize_fit() {

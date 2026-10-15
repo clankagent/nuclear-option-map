@@ -112,10 +112,18 @@
     <footer class="status">
       <span id="engine">Starting…</span>
       <span id="coords" aria-label="Pointer position">Grid — · x — · z —</span>
-      <span id="zoom">Zoom —</span>
+      <span class="zoom-control">
+        <span id="zoom">Zoom —</span>
+        <button type="button" id="zoom-limit-toggle" class="zoom-limit-toggle" role="switch" aria-checked="false" aria-label="Extended zoom" aria-describedby="zoom-limit-help" disabled><span class="zoom-switch-track" aria-hidden="true"><span></span></span></button>
+      </span>
       <span id="interval" hidden></span>
       <span id="size">Map —</span>
     </footer>
+  </div>
+  <div id="zoom-limit-help" class="zoom-limit-help" popover="manual" role="tooltip">
+    <strong>Extended zoom</strong>
+    <span id="zoom-limit-state">Off · Maximum 400×</span>
+    <p>Turn on to zoom up to 1,024×. Higher zoom enlarges the existing imagery.</p>
   </div>
   <script type="module" src="./main.ts"></script>
 </body>

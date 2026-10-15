@@ -20,6 +20,8 @@ export interface ViewState {
 export interface MapPointer { x: number; z: number; insideMap: boolean; gridReference: string | null }
 export interface MapViewerOptions {
   map?: MapDefinition; mode?: MapMode; grid?: boolean; gridLabels?: GridLabels; tint?: string;
+  /** Maximum zoom relative to fit, from 0.25 to 1024. Defaults to 1024. */
+  maxZoom?: number;
   contourInterval?: ContourPreference;
   contourSmoothingMeters?: number;
   topoStyle?: TopoStyle; topoStrength?: number; topoHillshade?: boolean;
@@ -49,6 +51,7 @@ export async function createMapViewer(canvas: HTMLCanvasElement, options: MapVie
 /** Browser canvas adapter. Coordinates and viewport transforms are implemented by the Rust WASM core. */
 export class MapViewer {
   private viewport: MapViewport;
+  private maxZoom: number;
   private ctx: CanvasRenderingContext2D;
   private map: MapDefinition | null = null;
   private source: HTMLImageElement | null = null;
@@ -110,7 +113,11 @@ export class MapViewer {
     this.customTint = options.tint !== undefined;
     if (!validTint(this.tint)) throw new TypeError('Tint must be #RRGGBB');
     if (!['builtin', 'raw'].includes(this.mode)) throw new TypeError('Unknown map mode');
+    this.maxZoom = options.maxZoom ?? 1024;
+    if (typeof this.maxZoom !== 'number') throw new TypeError('Maximum zoom must be a number');
     this.viewport = new MapViewport(1, 1, 1, 1);
+    try { this.viewport.setMaxZoom(this.maxZoom); }
+    catch (error) { this.viewport.free(); throw error; }
     this.previousTouchAction = canvas.style.touchAction;
     this.previousTabIndex = canvas.getAttribute('tabindex');
   }
@@ -192,6 +199,7 @@ export class MapViewer {
     try { tinted = this.mode === 'builtin' ? tintRaster(image, tint) : null; } catch (error) { contours?.destroy(); throw error; }
     let viewport: MapViewport | undefined;
     try { viewport = new MapViewport(map.widthMeters, map.heightMeters, this.width, this.height);
+    viewport.setMaxZoom(this.maxZoom);
     if (options.preserveView && this.map && this.map.widthMeters === map.widthMeters && this.map.heightMeters === map.heightMeters) {
       viewport.zoomAt(this.viewport.zoom(), this.width / 2, this.height / 2);
       viewport.pan(-this.viewport.centerX() * viewport.scale(), this.viewport.centerZ() * viewport.scale());
@@ -213,6 +221,7 @@ export class MapViewer {
   }
   zoomIn() { this.zoomBy(1.5); }
   zoomOut() { this.zoomBy(1 / 1.5); }
+  setMaxZoom(max: number) { this.assertAlive(); if (typeof max !== 'number') throw new TypeError('Maximum zoom must be a number'); this.viewport.setMaxZoom(max); this.maxZoom = max; this.changed(); }
   private zoomBy(factor: number) { this.assertAlive(); this.viewport.zoomAt(factor, this.width / 2, this.height / 2); this.changed(); }
   fit() { this.assertAlive(); this.viewport.fit(); this.changed(); }
   setGrid(value: boolean) { this.assertAlive(); this.grid = value; this.changed(); }

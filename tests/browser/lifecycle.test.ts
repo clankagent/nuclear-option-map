@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-const core = vi.hoisted(() => ({ init: vi.fn(async () => undefined), free: vi.fn(), scale: 1 }));
+const core = vi.hoisted(() => ({ init: vi.fn(async () => undefined), free: vi.fn(), setMaxZoom: vi.fn(), scale: 1 }));
 const contour = vi.hoisted(() => ({ fail: false, waitInterval: null as number | null, resolvers: [] as (() => void)[] }));
 vi.mock('../../src/contours', () => ({ ContourRenderer: class {
   private reject?: (error: Error) => void;
@@ -9,6 +9,8 @@ vi.mock('../../src/contours', () => ({ ContourRenderer: class {
 } }));
 vi.mock('../../pkg/nuclear_option_map.js', () => ({ default: core.init, MapViewport: class {
   resize() {} free() { core.free(); } zoom() { return 1; } scale() { return core.scale; } zoomAt(factor: number) { core.scale *= factor; } centerX() { return 0; } centerZ() { return 0; }
+  setMaxZoom(max: number) { core.setMaxZoom(max); }
+  pan() {}
   worldToScreen(x: number, z: number) { return [x, -z]; } screenToWorld(x: number, y: number) { return [x, -y]; }
 } }));
 import { MapViewer, chooseContourInterval, adaptiveContourInterval, createMapViewer } from '../../src/viewer';
@@ -47,6 +49,33 @@ function surfaces(failObserve = false) {
 }
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); contour.fail = false; contour.waitInterval = null; contour.resolvers = []; core.scale = 1; });
 describe('viewer construction lifecycle', () => {
+  it('passes zoom limits to the core and retains only successful changes across map replacement', async () => {
+    const surface = surfaces();
+    vi.stubGlobal('Image', class { naturalWidth = 10; naturalHeight = 10; onload?: () => void; set src(_value: string) { queueMicrotask(() => this.onload?.()); } });
+    const map = { id: 'a', name: 'A', widthMeters: 1000, heightMeters: 1000, image: 'a.png', grid: { columns: 1, rows: 1, offsetX: 0, offsetY: 0 } };
+    const viewer = await createMapViewer(surface.canvas, { mode: 'raw', grid: false, maxZoom: 400 });
+    expect(core.setMaxZoom).toHaveBeenLastCalledWith(400);
+    viewer.setMaxZoom(1024);
+    await viewer.setMap(map, { preserveView: true });
+    expect(core.setMaxZoom).toHaveBeenLastCalledWith(1024);
+    viewer.setMaxZoom(400);
+    core.setMaxZoom.mockImplementationOnce(() => { throw new Error('invalid core maximum'); });
+    expect(() => viewer.setMaxZoom(Number.NaN)).toThrow('invalid core maximum');
+    expect(() => viewer.setMaxZoom('1024' as never)).toThrow('must be a number');
+    await viewer.setMap({ ...map, id: 'b' }, { preserveView: true });
+    expect(core.setMaxZoom).toHaveBeenLastCalledWith(400);
+    viewer.destroy();
+  });
+  it('defaults the library maximum to 1024 and cleans up a rejected initial limit', async () => {
+    const surface = surfaces();
+    const viewer = await createMapViewer(surface.canvas);
+    expect(core.setMaxZoom).toHaveBeenLastCalledWith(1024);
+    viewer.destroy(); core.free.mockClear();
+    core.setMaxZoom.mockImplementationOnce(() => { throw new Error('invalid core maximum'); });
+    await expect(createMapViewer(surface.canvas, { maxZoom: 2048 })).rejects.toThrow('invalid core maximum');
+    expect(core.free).toHaveBeenCalledOnce();
+    expect(surface.listeners.size).toBe(0);
+  });
   it('retains optional topo preferences across maps and rejects invalid strength before mutation', async () => {
     const surface = surfaces();
     vi.stubGlobal('Image', class { naturalWidth = 10; naturalHeight = 10; onload?: () => void; set src(_value: string) { queueMicrotask(() => this.onload?.()); } });

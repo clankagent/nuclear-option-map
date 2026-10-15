@@ -44,6 +44,10 @@ const overlayText = $('overlay-text');
 const engineEl = $('engine');
 const coordsEl = $('coords');
 const zoomEl = $('zoom');
+const zoomLimitToggle = $<HTMLButtonElement>('zoom-limit-toggle');
+const zoomLimitHelp = $('zoom-limit-help');
+const zoomLimitState = $('zoom-limit-state');
+let extendedZoom = false;
 const sizeEl = $('size');
 const popovers = Array.from(document.querySelectorAll<HTMLDetailsElement>('details.pop'));
 
@@ -127,6 +131,7 @@ function syncControls() {
   for (const option of contourSelect.options) option.disabled = option.value !== 'auto' && !contourIntervals.includes(Number(option.value) as ContourInterval);
   contourSelect.value = String(contourPreference);
   zoomInBtn.disabled = zoomOutBtn.disabled = fitBtn.disabled = !hasMap;
+  zoomLimitToggle.disabled = !hasMap;
 }
 
 function fillVariants(mapId: string) {
@@ -242,6 +247,38 @@ function bindControls() {
   zoomInBtn.addEventListener('click', () => viewer?.zoomIn());
   zoomOutBtn.addEventListener('click', () => viewer?.zoomOut());
   fitBtn.addEventListener('click', () => viewer?.fit());
+  const positionZoomHelp = () => {
+    const box = zoomLimitToggle.getBoundingClientRect();
+    const width = Math.min(280, innerWidth - 24);
+    zoomLimitHelp.style.width = `${width}px`;
+    zoomLimitHelp.style.left = `${Math.max(12, Math.min(box.right - width, innerWidth - width - 12))}px`;
+    zoomLimitHelp.style.bottom = `${innerHeight - box.top + 8}px`;
+  };
+  let zoomHelpTimer: ReturnType<typeof setTimeout> | undefined;
+  const clearZoomHelpTimer = () => { if (zoomHelpTimer !== undefined) clearTimeout(zoomHelpTimer); zoomHelpTimer = undefined; };
+  const showZoomHelp = () => { clearZoomHelpTimer(); positionZoomHelp(); if (!zoomLimitHelp.matches(':popover-open')) zoomLimitHelp.showPopover(); };
+  const hideZoomHelp = () => { clearZoomHelpTimer(); if (zoomLimitHelp.matches(':popover-open')) zoomLimitHelp.hidePopover(); };
+  const deferZoomHelpHide = () => {
+    clearZoomHelpTimer();
+    zoomHelpTimer = setTimeout(() => {
+      if (document.activeElement !== zoomLimitToggle && !zoomLimitToggle.matches(':hover') && !zoomLimitHelp.matches(':hover')) hideZoomHelp();
+    }, 180);
+  };
+  zoomLimitToggle.addEventListener('click', () => {
+    if (!viewer) return;
+    extendedZoom = !extendedZoom;
+    viewer.setMaxZoom(extendedZoom ? 1024 : 400);
+    zoomLimitToggle.setAttribute('aria-checked', String(extendedZoom));
+    zoomLimitState.textContent = extendedZoom ? 'On · Maximum 1,024×' : 'Off · Maximum 400×';
+    showZoomHelp();
+  });
+  zoomLimitToggle.addEventListener('pointerenter', showZoomHelp);
+  zoomLimitToggle.addEventListener('pointerleave', deferZoomHelpHide);
+  zoomLimitHelp.addEventListener('pointerenter', showZoomHelp);
+  zoomLimitHelp.addEventListener('pointerleave', deferZoomHelpHide);
+  zoomLimitToggle.addEventListener('focus', showZoomHelp);
+  zoomLimitToggle.addEventListener('blur', deferZoomHelpHide);
+  window.addEventListener('resize', () => { if (zoomLimitHelp.matches(':popover-open')) positionZoomHelp(); });
   canvas.addEventListener('pointerleave', () => onPointerMove(null));
 
   // Popovers: one open at a time; close on outside click or Escape.
@@ -251,10 +288,12 @@ function bindControls() {
     });
   }
   document.addEventListener('pointerdown', e => {
+    if (!zoomLimitToggle.contains(e.target as Node) && !zoomLimitHelp.contains(e.target as Node)) hideZoomHelp();
     for (const d of popovers) if (d.open && !d.contains(e.target as Node)) d.open = false;
   });
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
+    hideZoomHelp();
     for (const d of popovers) if (d.open) { d.open = false; d.querySelector('summary')?.focus(); }
   });
 }
@@ -310,6 +349,7 @@ async function init() {
   showOverlay('Starting', 'Initializing map engine…');
   try {
     viewer = await createMapViewer(canvas, {
+      maxZoom: 400,
       mode: modeSelect.value as Mode,
       grid: saved.grid,
       gridLabels: saved.labels,
