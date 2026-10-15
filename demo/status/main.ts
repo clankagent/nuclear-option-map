@@ -181,7 +181,17 @@ function renderData(s: ProjectStatus): void {
   if (!s.stages.length) refs.stages.append(el("li", { text: "No pipeline stages reported.", cls: "pending" }));
 
   const r = s.resources;
-  const rows = Object.entries(r).map(([k, v]) => kv(humanize(k), fmtBytes(v)));
+  const rows: HTMLElement[] = [];
+  if (r.cpuCoresAvailable !== undefined || r.cpuCoresUsed !== undefined) {
+    const available = r.cpuCoresAvailable === null || r.cpuCoresAvailable === undefined ? "" : ` / ${r.cpuCoresAvailable.toFixed(0)}`;
+    const usage = r.cpuCoresUsed === null || r.cpuCoresUsed === undefined ? "Measuring" : r.cpuCoresUsed.toFixed(2);
+    const window = r.cpuSampleSeconds ? ` · ${r.cpuSampleSeconds.toFixed(0)} s average` : "";
+    rows.push(kv(`CPU${window}`, `${usage}${available} vCPU`));
+  }
+  for (const [k, v] of Object.entries(r)) {
+    if (["cpuCoresUsed", "cpuCoresAvailable", "cpuSampleSeconds"].includes(k)) continue;
+    rows.push(kv(humanize(k), k.endsWith("Bytes") ? fmtBytes(v) : v === null ? "–" : fmtInt(v)));
+  }
   refs.resources.replaceChildren(...(rows.length ? rows : [kv("Resources", "Not reported")]));
 
   const b = s.billing;

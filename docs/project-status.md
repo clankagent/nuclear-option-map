@@ -4,6 +4,8 @@ The demo's `/status/` page shows the current job, its measured progress and rema
 
 Reuse the page by changing the data producer's job configuration, not the UI. The contract contains `job` identity/title, `state`, current `stage`, ordered `stages`, `progress`, named `groups` with per-level counts, source/census timestamps, collector health, and optional resources/billing/detail links. The local producer configuration and operating instructions live with that deployment; the page has no service names or machine paths.
 
+Optional resource fields `cpuCoresUsed`, `cpuCoresAvailable`, and `cpuSampleSeconds` show measured CPU-seconds per elapsed second, available vCPUs, and the measurement interval. The first sample is unknown. Producers must reset the measurement when the job identity or CPU counter changes; a process lifetime average is not a current usage measurement.
+
 Progress counts are provisional output observations. Reaching100% does not imply verification, appearance acceptance or delivery. A complete state requires explicit completion evidence from the producer. The page retains last-good data during failed requests and distinguishes old source measurements from a fresh JSON write. Source and progress measurement ages are shown separately. Refresh fetches a new snapshot; it does not start a job. Automatic polling pauses in a hidden tab.
 
 A minimal producer snapshot looks like this (illustrative values):
