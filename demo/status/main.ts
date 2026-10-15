@@ -147,7 +147,7 @@ function renderData(s: ProjectStatus): void {
   refs.title.textContent = s.job.title;
   document.title = `${s.job.title} · Status`;
   refs.subtitle.textContent = s.job.subtitle;
-  refs.stage.textContent = s.stage?.label ?? (s.state === "review" ? "Awaiting review" : "No active stage reported");
+  refs.stage.textContent = s.stage?.label ?? (s.state === "complete" ? "All work complete" : s.state === "review" ? "Awaiting review" : "No active stage reported");
 
   const { completed, total, unit } = s.progress;
   if (completed === null) {
@@ -182,7 +182,7 @@ function renderData(s: ProjectStatus): void {
 
   const r = s.resources;
   const rows: HTMLElement[] = [];
-  if (r.cpuCoresAvailable !== undefined || r.cpuCoresUsed !== undefined) {
+  if (typeof r.cpuCoresAvailable === "number" || typeof r.cpuCoresUsed === "number") {
     const available = r.cpuCoresAvailable === null || r.cpuCoresAvailable === undefined ? "" : ` / ${r.cpuCoresAvailable.toFixed(0)}`;
     const usage = r.cpuCoresUsed === null || r.cpuCoresUsed === undefined ? "Measuring" : r.cpuCoresUsed.toFixed(2);
     const window = r.cpuSampleSeconds ? ` · ${r.cpuSampleSeconds.toFixed(0)} s average` : "";
