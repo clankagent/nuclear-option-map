@@ -98,6 +98,8 @@ For baselines that store different levels in separate locations, add `--base-roo
 
 The Python API uses the same string level keys: `base_roots={"10": Path("BASE-FINEST/10")}`. Nonstring keys are rejected. Each value points directly to the level directory containing `<x>/<y>.webp`, not its parent. Validate the actual split-root layout with `--plan-only` (or `prepare(..., plan_only=True)`) before the full stage; a synthetic single-root test does not check this integration.
 
+Check the complete finishing input set on the machine that will run it, including source records used for verification and visual comparisons. Files uploaded to render storage are not automatically present on that machine's filesystem. Verify required paths and hashes, then freeze the inputs and measure the files to collect before allocating a collection worker. A successful render-input check alone does not establish that collection, staging and review inputs are ready.
+
 Unchanged tiles use hardlinks by default, so the candidate must be on the same filesystem as the baseline. Use `--copy-base` when an independent byte copy is required and storage permits it. Changed tiles always use new files. Do not edit, resave, chmod or truncate reused hardlinks after staging.
 
 Required covered files must exist. The baseline must already be accepted and immutable; this command does not rehash every unchanged baseline file. Sparse absent tiles can contribute the descriptor's explicit opaque `fillRgba8`; a missing covered file is an error. Replacement images must match the existing tile dimensions and be opaque. Coverage remains unchanged.
