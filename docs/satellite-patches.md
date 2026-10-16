@@ -104,6 +104,8 @@ Required covered files must exist. The baseline must already be accepted and imm
 
 The output contains a complete static file layout, `pyramid.json`, `overview.webp` and `patch-receipt.json`. The receipt distinguishes replacements, regenerated parents and reused files. The output directory must be absent before starting. A failed run has no successful completion receipt; preserve it for diagnosis and use a fresh directory for a corrected run.
 
+If concurrent changes use the same baseline, compare their finest replacement coordinates before combining them. Disjoint coordinates can enter one replacement plan. An overlapping coordinate needs one tile containing both changes: render the overlap with both source changes, or use a validated composite that preserves occlusion and shadows. Copying one complete tile over the other loses a change. Record how each overlap was resolved, then rebuild the dependent zoom levels from the final union of finest replacements. Keep interim variants clearly labelled until that combined candidate passes review.
+
 ## 5. Review and publish the candidate
 
 Check the patch receipt, exact replacement coordinates, rebuilt parent coordinates and refreshed overview. Reused baseline files must retain their original bytes. Changed files must have independent inodes: never write through a hardlink to a baseline tile.
