@@ -259,7 +259,7 @@ export function createCoverage(r: CoverageRefs): CoverageController {
     const desc = `${describeMap(m)}${m.measuredAt ? ` Measured ${fmtTime(m.measuredAt)}.` : ""}`;
     if (r.description.textContent !== desc) r.description.textContent = desc;
     r.legend.replaceChildren(
-      ...m.states.map((s) => {
+      ...m.states.filter((s) => s.count > 0).map((s) => {
         const sw = document.createElement("span");
         sw.className = "swatch";
         sw.style.background = s.color;
