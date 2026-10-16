@@ -126,3 +126,23 @@ section > p.muted.small { margin-top: 8px; }
 .verification-details { margin-top: 16px; color: var(--muted); }
 .verification-details > summary { cursor: pointer; padding: 10px 0; min-height: 44px; }
 .verification-details .completion { line-height: 1.8; }
+
+/* Coverage maps: one flat tile per 128 m world cell, scrolled when zoomed. */
+.coverage { min-width: 0; }
+.cov-controls { display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; margin-bottom: 8px; }
+.cov-group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.cov-group button { padding: 0 12px; min-width: 44px; }
+.cov-group button[aria-pressed="true"] { background: #252a31; border-color: var(--blue); }
+.cov-zoom { min-width: 36px; text-align: center; color: var(--muted); }
+.cov-view { max-width: 100%; max-height: min(70vh, 640px); overflow: auto; background: #0b0d0f; border: 1px solid var(--line); border-radius: 6px; overscroll-behavior: contain; }
+.cov-stage { position: relative; margin-inline: auto; }
+.cov-stage canvas { display: block; image-rendering: pixelated; touch-action: pan-x pan-y; }
+.cov-cursor { position: absolute; border: 2px solid #fff; box-shadow: 0 0 0 1px #000; pointer-events: none; }
+.cov-readout { margin-top: 8px; min-height: 2.9em; overflow-wrap: anywhere; }
+.cov-legend { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0 20px; margin-top: 8px; border-top: 1px solid var(--line); }
+.cov-legend li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.cov-legend .swatch { width: 12px; height: 12px; border-radius: 2px; flex: none; border: 1px solid #3a424b; }
+.cov-legend .n { margin-left: auto; color: var(--muted); }
+.cov-notice { border-left: 3px solid var(--amber); padding: 4px 10px; margin-top: 8px; }
+.coverage .muted.small { margin-top: 8px; }
+.pill.preparing { color: var(--blue); }

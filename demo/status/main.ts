@@ -13,6 +13,7 @@ import {
   type Group,
   type ProjectStatus,
 } from "./model";
+import { createCoverage } from "./coverage";
 
 const STATUS_URL = "/maps/render-status/project-status.json";
 const POLL_MS = 15_000;
@@ -62,6 +63,25 @@ const refs = {
   source: $("source"),
 };
 
+const coverage = createCoverage({
+  section: $("coverage-sec"),
+  tabs: $("cov-tabs"),
+  zoomOut: $<HTMLButtonElement>("cov-zoom-out"),
+  zoomIn: $<HTMLButtonElement>("cov-zoom-in"),
+  fit: $<HTMLButtonElement>("cov-fit"),
+  reset: $<HTMLButtonElement>("cov-reset"),
+  zoomLabel: $("cov-zoom"),
+  view: $("cov-view"),
+  stage: $("cov-stage"),
+  canvas: $<HTMLCanvasElement>("cov-canvas"),
+  cursor: $("cov-cursor"),
+  readout: $("cov-readout"),
+  description: $("cov-desc"),
+  legend: $("cov-legend"),
+  notice: $("cov-notice"),
+  measure: $("cov-measure"),
+});
+
 let current: ProjectStatus | null = null;
 let fetchError: string | null = null;
 let lastOkAt: number | null = null;
@@ -70,7 +90,7 @@ let timer: number | undefined;
 let lastDigest = "";
 const openGroups = new Set<string>();
 
-const STATE_TEXT: Record<string, string> = { running: "Running", blocked: "Needs attention", review: "Ready for review", complete: "Complete" };
+const STATE_TEXT: Record<string, string> = { preparing: "Preparing", running: "Running", blocked: "Needs attention", review: "Ready for review", complete: "Complete" };
 const LABELS: Record<string, string> = {
   diskFreeBytes: "Disk free",
   memoryCurrentBytes: "Memory now",
@@ -163,7 +183,8 @@ function renderData(s: ProjectStatus): void {
     refs.bar.setAttribute("aria-valuetext", `${fmtInt(completed)} of ${fmtInt(total)} ${unit}`);
     refs.fill.style.width = `${percent(completed, total)}%`;
   }
-  refs.basis.textContent = [s.progress.measuredAt ? `Progress measured ${fmtTime(s.progress.measuredAt)}` : "Progress not measured yet", `Counts update every ${Math.round(s.progress.censusIntervalSeconds)} seconds`].join(" · ");
+  coverage.update(s.job.id, s.coverageMaps);
+  refs.basis.textContent = [s.progress.basis, s.progress.measuredAt ? `Progress measured ${fmtTime(s.progress.measuredAt)}` : "Progress not measured yet", `Counts update every ${Math.round(s.progress.censusIntervalSeconds)} seconds`].filter(Boolean).join(" · ");
 
   refs.completion.replaceChildren(
     ...Object.entries(s.completion).map(([k, v]) =>
@@ -236,6 +257,7 @@ function renderFreshness(): void {
     return;
   }
   const stale = isStale(s);
+  coverage.setStale(stale);
   const age = fmtAge(ageSeconds(s.sourceGeneratedAt));
   refs.freshness.textContent = `Source ${age} · progress ${fmtAge(ageSeconds(s.censusGeneratedAt))}`;
   const failed = !!fetchError || !s.collector.ok;

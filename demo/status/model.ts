@@ -1,4 +1,4 @@
-export type JobState = "running" | "blocked" | "review" | "complete";
+export type JobState = "preparing" | "running" | "blocked" | "review" | "complete";
 export type StageState = "complete" | "active" | "pending";
 
 export interface Level {
@@ -54,6 +54,46 @@ export interface ProjectStatus {
   } | null;
   details: DetailLink[];
   warnings: string[];
+  coverageMaps: CoverageMap[];
+}
+
+export interface CoverageState {
+  code: number;
+  label: string;
+  color: string;
+  count: number;
+}
+export interface CoverageMap {
+  id: string;
+  label: string;
+  width: number;
+  height: number;
+  image: string;
+  states: CoverageState[];
+  measuredAt: string | null;
+  cellMeters: 128;
+  provisional: true;
+}
+
+export const COVERAGE_MAX_MAPS = 2;
+export const COVERAGE_MAX_STATES = 8;
+export const COVERAGE_MAX_IMAGE_CHARS = 2 * 1024 * 1024;
+export const COVERAGE_MAX_EDGE = 2048;
+const PNG_DATA_URL = /^data:image\/png;base64,iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$/;
+const SIX_HEX = /^#[0-9a-fA-F]{6}$/;
+
+// Check dimensions before Image decoding; a small compressed PNG must not
+// allocate an unexpectedly large bitmap while the page validates its metadata.
+function pngDimensionsMatch(image: string, width: number, height: number): boolean {
+  try {
+    const header = atob(image.slice("data:image/png;base64,".length, "data:image/png;base64,".length + 44));
+    if (header.length < 33 || header.slice(12, 16) !== "IHDR") return false;
+    const u32 = (i: number): number =>
+      header.charCodeAt(i) * 2 ** 24 + header.charCodeAt(i + 1) * 2 ** 16 + header.charCodeAt(i + 2) * 256 + header.charCodeAt(i + 3);
+    return u32(8) === 13 && u32(16) === width && u32(20) === height;
+  } catch {
+    return false;
+  }
 }
 
 type Obj = Record<string, unknown>;
@@ -84,7 +124,7 @@ export function parseStatus(raw: unknown): ProjectStatus {
     subtitle: str(raw.job.subtitle),
   };
   const state: JobState =
-    raw.state === "blocked" || raw.state === "review" || raw.state === "running" || raw.state === "complete"
+    raw.state === "preparing" || raw.state === "blocked" || raw.state === "review" || raw.state === "running" || raw.state === "complete"
       ? raw.state
       : (() => {
           throw new ShapeError("Invalid status data: state");
@@ -176,7 +216,48 @@ export function parseStatus(raw: unknown): ProjectStatus {
     billing,
     details,
     warnings,
+    coverageMaps: parseCoverageMaps(raw.coverageMaps),
   };
+}
+
+const edge = (v: unknown): number | null =>
+  typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= COVERAGE_MAX_EDGE ? v : null;
+
+function parseCoverageMap(m: unknown): CoverageMap | null {
+  if (!isObj(m)) return null;
+  const id = strOrNull(m.id);
+  const label = strOrNull(m.label);
+  const width = edge(m.width);
+  const height = edge(m.height);
+  if (!id || !label || width === null || height === null || width * height > COVERAGE_MAX_EDGE * COVERAGE_MAX_EDGE) return null;
+  const image = m.image;
+  if (typeof image !== "string" || image.length > COVERAGE_MAX_IMAGE_CHARS || !PNG_DATA_URL.test(image) || !pngDimensionsMatch(image, width, height)) return null;
+  if (m.cellMeters !== 128 || m.provisional !== true) return null;
+  if (!Array.isArray(m.states) || m.states.length > COVERAGE_MAX_STATES) return null;
+  const states: CoverageState[] = [];
+  for (const s of m.states) {
+    if (!isObj(s)) return null;
+    const code = s.code;
+    const stateLabel = strOrNull(s.label);
+    const n = count(s.count);
+    if (typeof code !== "number" || !Number.isInteger(code) || code < 0 || code > 255) return null;
+    if (!stateLabel || n === null || !Number.isInteger(n) || n > width * height || typeof s.color !== "string" || !SIX_HEX.test(s.color)) return null;
+    if (states.some((existing) => existing.code === code || existing.color === (s.color as string).toLowerCase())) return null;
+    states.push({ code, label: stateLabel, color: s.color.toLowerCase(), count: n });
+  }
+  if (states.reduce((sum, state) => sum + state.count, 0) !== width * height) return null;
+  return { id, label, width, height, image, states, measuredAt: strOrNull(m.measuredAt), cellMeters: 128, provisional: true };
+}
+
+/** Optional section: absent or malformed maps never invalidate the rest of the status. */
+function parseCoverageMaps(raw: unknown): CoverageMap[] {
+  if (!Array.isArray(raw)) return [];
+  const maps: CoverageMap[] = [];
+  for (const m of raw.slice(0, COVERAGE_MAX_MAPS)) {
+    const parsed = parseCoverageMap(m);
+    if (parsed && !maps.some((x) => x.id === parsed.id)) maps.push(parsed);
+  }
+  return maps;
 }
 
 /** Only http(s) absolute URLs or root-relative paths are linkable. */

@@ -51,6 +51,31 @@
               <p id="basis" class="muted small"></p>
             </section>
 
+            <section id="coverage-sec" class="coverage" aria-labelledby="cov-h" hidden>
+              <h2 id="cov-h">Map coverage</h2>
+              <div class="cov-controls">
+                <div id="cov-tabs" class="cov-group" role="group" aria-label="Map"></div>
+                <div class="cov-group" role="group" aria-label="Zoom">
+                  <button id="cov-zoom-out" type="button" aria-label="Zoom out">−</button>
+                  <span id="cov-zoom" class="cov-zoom" aria-live="polite">1×</span>
+                  <button id="cov-zoom-in" type="button" aria-label="Zoom in">+</button>
+                  <button id="cov-fit" type="button">Fit</button>
+                  <button id="cov-reset" type="button">Reset</button>
+                </div>
+              </div>
+              <div id="cov-view" class="cov-view" tabindex="0" role="group" aria-label="Coverage map" aria-describedby="cov-desc cov-readout">
+                <div id="cov-stage" class="cov-stage">
+                  <canvas id="cov-canvas" width="1" height="1"></canvas>
+                  <span id="cov-cursor" class="cov-cursor" hidden></span>
+                </div>
+              </div>
+              <p id="cov-readout" class="cov-readout small">Hover, tap or use the arrow keys on the map to read a tile.</p>
+              <p id="cov-desc" class="visually-hidden"></p>
+              <ul id="cov-legend" class="cov-legend" aria-label="Legend"></ul>
+              <p id="cov-notice" class="cov-notice small" role="status" hidden></p>
+              <p id="cov-measure" class="muted small"></p>
+            </section>
+
             <section aria-labelledby="maps-h">
               <h2 id="maps-h">Work by group</h2>
               <div id="groups" class="groups"></div>
