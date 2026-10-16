@@ -100,6 +100,8 @@ The Python API uses the same string level keys: `base_roots={"10": Path("BASE-FI
 
 Check the complete finishing input set on the machine that will run it, including source records used for verification and visual comparisons. Files uploaded to render storage are not automatically present on that machine's filesystem. Verify required paths and hashes, then freeze the inputs and measure the files to collect before allocating a collection worker. A successful render-input check alone does not establish that collection, staging and review inputs are ready.
 
+Test path checks against the actual mounted storage. Resolve the trusted mount root once, then check the owned relative paths beneath it and reject unexpected links inside those paths. Walking every ancestor can incorrectly reject a provider-managed mount alias and block valid results. Keep exact file-size and hash checks after resolving paths.
+
 Unchanged tiles use hardlinks by default, so the candidate must be on the same filesystem as the baseline. Use `--copy-base` when an independent byte copy is required and storage permits it. Changed tiles always use new files. Do not edit, resave, chmod or truncate reused hardlinks after staging.
 
 Required covered files must exist. The baseline must already be accepted and immutable; this command does not rehash every unchanged baseline file. Sparse absent tiles can contribute the descriptor's explicit opaque `fillRgba8`; a missing covered file is an error. Replacement images must match the existing tile dimensions and be opaque. Coverage remains unchanged.
