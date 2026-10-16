@@ -26,11 +26,19 @@ Keep three coordinate systems separate:
 
 Publish only the selected owners, even when a larger scene group is rendered for context. If the old or new scene influence reaches an area represented only by virtual fill, stop and qualify the coverage change. Do not silently treat unknown imagery as rendered water or expand a coverage mask.
 
+Before dispatch, audit every job against its actual physical crop bounds. Check the exact old and new geometry, their shadows and all source objects assigned to the job. A conservative publication halo can select an owner that contains no changed geometry or shadow within its physical crop. Give such an owner an explicit no-op disposition and retain its baseline pixels; do not submit an empty replacement set. Reconcile the dispositions with the complete source inventory so no changed object or physical shadow influencer disappears from the plan. Qualify finite indirect-light context separately; a geometry/shadow audit does not prove that context is sufficient.
+
 ## 3. Render and verify the finest replacements
 
 Use the same north-up camera alignment, pixel spacing, source-texture profile, lighting and finalization pipeline as the baseline. Preserve accepted corrections to unrelated scene objects. Keep scene preparation, raw render completion, denoising and final tile delivery as separate recorded stages.
 
 Use bounded render jobs with durable submission records. Recover completed output before considering another render. An uncertain call is not an instruction to resubmit it. Render only the selected region; the pyramid tool does not submit render jobs.
+
+For a persistent Blender preparation process, clear scene-dependent and image-pointer caches whenever a file is loaded. Blender can reuse an image pointer for a different image. Reuse content-hash caches only after checking the actual image header and both dimensions; equal pixel counts do not establish equal width and height. Bind prepared scenes and receipts to their input and helper hashes. If a cache defect is found, independently audit earlier outputs that used it before retaining them.
+
+If a correction retires no-op jobs, write a new plan and disposition record. Prove that each retained job's payload is unchanged before carrying forward its completed preparation or render receipt. Record no-ops as baseline reuse, never as provider-completed renders. Stop new submissions, resolve or drain in-flight work and release the exclusive render lane before starting a corrected controller. Keep uncertain submissions unresolved until their actual status is known. The new controller must retain the remaining resource budget. Keep it responsive during paid calls so it can record completion and support cancellation. Hold the render lane for the full call.
+
+Preflight the complete job plan and exact helpers before scaling. Then run a representative scene through preparation, rendering, tile delivery and the real CPU pyramid stage. When a worker reuses one process, also exercise different scenes and image dimensions in the same batch. Include split baseline roots when production uses them. Record preparation, render completion, verified tile delivery and completed zoom levels separately. Count actual published tiles from verified coordinates; do not assume a fixed number per job. Use monotonic elapsed time for resource deadlines, and check observer clocks before comparing timestamps from different machines.
 
 Verify each replacement's coordinate, dimensions, orientation, file hash and render receipt. Inspect a real scene crop at native pixel scale and inspect joins against unchanged neighbors. A complete file set does not establish visual acceptance.
 
@@ -83,6 +91,8 @@ For baselines that store different levels in separate locations, add `--base-roo
   "10": "../../baseline-finest/10"
 }
 ```
+
+The Python API uses the same string level keys: `base_roots={"10": Path("BASE-FINEST/10")}`. Nonstring keys are rejected. Each value points directly to the level directory containing `<x>/<y>.webp`, not its parent. Validate the actual split-root layout with `--plan-only` (or `prepare(..., plan_only=True)`) before the full stage; a synthetic single-root test does not check this integration.
 
 Unchanged tiles use hardlinks by default, so the candidate must be on the same filesystem as the baseline. Use `--copy-base` when an independent byte copy is required and storage permits it. Changed tiles always use new files. Do not edit, resave, chmod or truncate reused hardlinks after staging.
 

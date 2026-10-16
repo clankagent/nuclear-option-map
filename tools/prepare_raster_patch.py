@@ -6,7 +6,7 @@
 
 Baseline files must be immutable and previously accepted. This tool checks required
 file presence, but does not audit every baseline pixel or hash the entire baseline.
-Per-level roots map level numbers to directories containing x/y.webp.
+Per-level roots use string level keys and directories containing x/y.webp.
 """
 from __future__ import annotations
 
@@ -175,7 +175,9 @@ def prepare(base_manifest, base_root, replacements, output, base_roots=None, cop
         raise ValueError('Nonempty replacement tiles required')
     root = Path(base_root).absolute(); output = Path(output).absolute()
     overrides = base_roots or {}
-    if any(str(z) not in {str(i) for i in range(len(levels))} for z in overrides):
+    if any(not isinstance(z, str) for z in overrides):
+        raise ValueError('Base root level keys must be strings, for example "10"')
+    if any(z not in {str(i) for i in range(len(levels))} for z in overrides):
         raise ValueError('Unknown base root level')
     roots = {z: Path(overrides.get(str(z), root/str(z))).absolute() for z in range(len(levels))}
     for source in (root, *roots.values(), base_manifest, replacements):

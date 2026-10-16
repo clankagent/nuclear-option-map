@@ -178,6 +178,19 @@ class RasterPatchTests(unittest.TestCase):
         shutil.move(moved, self.base/'2')
         self.compare_full(replacement, 1, 1)
 
+    def test_integer_split_root_key_is_rejected_before_staging(self):
+        self.fixture(); self.replacement(1, 1)
+        import shutil
+        moved = self.root/'finest'; shutil.move(self.base/'2', moved)
+        original = {p: sha(p) for root in (self.base, moved) for p in root.rglob('*.webp')}
+        with self.assertRaisesRegex(ValueError, 'level keys must be strings'):
+            self.run_patch(base_roots={2: moved}, plan_only=True)
+        self.assertFalse((self.root/'candidate').exists())
+        self.assertEqual(original, {p: sha(p) for p in original})
+        _, receipt = self.run_patch(base_roots={'2': moved}, plan_only=True)
+        self.assertTrue(receipt['planOnly'])
+        self.assertFalse((self.root/'candidate').exists())
+
     def test_rejects_plan_and_baseline_descriptor_mutation_during_staging(self):
         self.fixture(); self.replacement()
         original_link = os.link
