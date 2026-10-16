@@ -368,7 +368,7 @@ export function phaseTimingView(s: ProjectStatus, now = Date.now(), unavailable 
   const details = [
     `${t.scopeLabel}.`,
     t.sampleCount > 0 ? `${fmtInt(t.sampleCount)} completed intervals: ${fmtInt(t.sampleTiles)} tiles over ${fmtDuration(t.sampleElapsedSeconds)}.` : "Waiting for completed batches.",
-    t.unitsPerSecond !== null ? `Recent weighted rate: ${fmtInt(t.unitsPerSecond * 3600)} tiles/hour, including collection and handover.` : "",
+    t.unitsPerSecond !== null ? `Forecast rate: ${fmtInt(t.unitsPerSecond * 3600)} tiles/hour, including collection and handover.` : "",
     estimated && elapsed !== null ? `Estimated run duration: ${fmtDuration(elapsed + (end - now) / 1000)}.` : "",
     t.currentBatchOverdue ? "The current batch is taking longer than the recent full-pipeline estimate; its work remains pending." : "",
     t.assumption,
