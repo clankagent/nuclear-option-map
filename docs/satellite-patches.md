@@ -30,6 +30,10 @@ Before dispatch, audit every job against its actual physical crop bounds. Check 
 
 ## 3. Render and verify the finest replacements
 
+Overlap immutable CPU preparation with GPU rendering. Use one preparation worker and a bounded queue of prepared scenes so the next scene is ready before the GPU needs it. Give preparation its own lifetime lock; it must not hold the render or publication locks while reading frozen inputs and writing private scene packets. Keep one GPU call unresolved at a time. Publish and verify its outputs before admitting the next paid call. A dataset change or publication still requires the appropriate source and publication locks.
+
+Measure preparation, GPU processing and transfers, encoding, durable commits, collection and verification separately. Reduce repeated setup and redundant commits while preserving a durable begin record before each processing group and a completion record afterward. Keep the GPU session warm only within finite windows and the configured idle limit. GPU utilization alone does not establish useful throughput or billable efficiency.
+
 Use the same north-up camera alignment, pixel spacing, source-texture profile, lighting and finalization pipeline as the baseline. Preserve accepted corrections to unrelated scene objects. Keep scene preparation, raw render completion, denoising and final tile delivery as separate recorded stages.
 
 Use bounded render jobs with durable submission records. Recover completed output before considering another render. An uncertain call is not an instruction to resubmit it. Render only the selected region; the pyramid tool does not submit render jobs.
