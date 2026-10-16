@@ -9,6 +9,7 @@ import {
   isStale,
   parseStatus,
   percent,
+  phaseTimingView,
   safeHref,
   type Group,
   type ProjectStatus,
@@ -50,6 +51,12 @@ const refs = {
   counts: $("counts"),
   bar: $("bar"),
   fill: $("bar-fill"),
+  timing: $("timing"),
+  elapsed: $("elapsed"),
+  remaining: $("remaining"),
+  finish: $("finish"),
+  timingScope: $("timing-scope"),
+  timingBasis: $("timing-basis"),
   basis: $("basis"),
   completion: $("completion"),
   groups: $("groups"),
@@ -261,6 +268,15 @@ function renderFreshness(): void {
   const age = fmtAge(ageSeconds(s.sourceGeneratedAt));
   refs.freshness.textContent = `Source ${age} · progress ${fmtAge(ageSeconds(s.censusGeneratedAt))}`;
   const failed = !!fetchError || !s.collector.ok;
+  const timing = phaseTimingView(s, Date.now(), failed);
+  refs.timing.hidden = !timing;
+  if (timing) {
+    refs.elapsed.textContent = timing.elapsed;
+    refs.remaining.textContent = timing.remaining;
+    refs.finish.textContent = timing.finish;
+    refs.timingScope.textContent = `${timing.scope} · about this estimate`;
+    refs.timingBasis.textContent = timing.details;
+  }
   const cls = stale || failed ? "stale" : s.state;
   refs.pill.className = `pill ${cls}`;
   refs.pill.textContent = failed ? "Update issue" : stale ? `${STATE_TEXT[s.state]} · stale` : STATE_TEXT[s.state];

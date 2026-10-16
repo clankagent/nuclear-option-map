@@ -64,6 +64,16 @@ button:disabled { color: var(--muted); cursor: progress; }
 .bar.stale span { background: var(--amber); }
 .bar.complete span { background: var(--mint); }
 .note { margin-top: 4px; }
+.timing-row { display: grid; grid-template-columns: 1fr 1fr 1.8fr; gap: 14px; margin: 16px 0 8px; font-variant-numeric: tabular-nums; }
+.timing-row dt { color: var(--muted); font-size: 12px; }
+.timing-row dd { margin: 3px 0 0; font-size: 16px; font-weight: 600; }
+.timing-details { margin-bottom: 12px; }
+.timing-details summary { width: fit-content; cursor: pointer; color: var(--muted); font-size: 12px; padding: 6px 0; }
+.timing-details p { margin-top: 4px; }
+@media (max-width: 600px) {
+  .timing-row { grid-template-columns: 1fr 1fr; }
+  .timing-finish { grid-column: 1 / -1; }
+}
 .completion { display: flex; flex-wrap: wrap; gap: 4px 20px; margin-top: 14px; }
 .completion div { display: flex; gap: 6px; }
 .completion dt { color: var(--muted); }

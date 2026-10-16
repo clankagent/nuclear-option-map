@@ -1,5 +1,5 @@
 import { expect, it } from 'vite-plus/test';
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { createServer, request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -72,6 +72,41 @@ it('serves newly generated map assets directly and confines lookups to visible m
     expect((await get(path, 'POST')).status).toBe(405);
   } finally {
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    await rm(scratch, { recursive: true, force: true });
+  }
+});
+
+it('releases the source file when a client cancels an asset response', async () => {
+  const scratch = await mkdtemp(join(tmpdir(), 'nuclear-map-cancel-'));
+  const source = join(scratch, 'progress.bin');
+  const replacement = join(scratch, 'replacement.bin');
+  await writeFile(source, Buffer.alloc(8 * 1024 * 1024, 7));
+  await writeFile(replacement, 'next snapshot');
+  const middleware = createMapStaticMiddleware(scratch);
+  const server = createServer((req, res) => { void middleware(req, res, () => res.end()); });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Missing server address');
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const req = request({ host: '127.0.0.1', port: address.port, path: '/maps/progress.bin' }, res => {
+        res.once('data', () => { req.destroy(); resolve(); });
+      });
+      req.once('error', reject); req.end();
+    });
+    // Windows refuses replacement while the cancelled response retains its fd.
+    let replaced = false;
+    for (let attempt = 0; attempt < 50 && !replaced; attempt++) {
+      try { await rename(replacement, source); replaced = true; }
+      catch (error) {
+        if (!['EPERM', 'EACCES', 'EBUSY'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+    }
+    expect(replaced).toBe(true);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
     await rm(scratch, { recursive: true, force: true });
   }
 });

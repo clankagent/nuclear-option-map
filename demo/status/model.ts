@@ -23,6 +23,21 @@ export interface DetailLink {
   value?: string;
   href?: string;
 }
+export interface PhaseTiming {
+  status: string;
+  scopeLabel: string;
+  measuredAt: string | null;
+  elapsedSeconds: number | null;
+  remainingSeconds: number | null;
+  estimatedFinishAt: string | null;
+  sampleCount: number;
+  sampleTiles: number;
+  sampleElapsedSeconds: number;
+  unitsPerSecond: number | null;
+  batchSeconds: number | null;
+  currentBatchOverdue: boolean;
+  assumption: string;
+}
 export interface ProjectStatus {
   schemaVersion: 1;
   job: { id: string; title: string; subtitle: string };
@@ -55,6 +70,7 @@ export interface ProjectStatus {
   details: DetailLink[];
   warnings: string[];
   coverageMaps: CoverageMap[];
+  timing: PhaseTiming | null;
 }
 
 export interface CoverageState {
@@ -199,6 +215,17 @@ export function parseStatus(raw: unknown): ProjectStatus {
       })
     : [];
   const warnings = Array.isArray(raw.warnings) ? raw.warnings.filter((w): w is string => typeof w === "string") : [];
+  const t = isObj(raw.timing) ? raw.timing : null;
+  const timing: PhaseTiming | null = t ? {
+    status: str(t.status), scopeLabel: str(t.scopeLabel, "Current phase"),
+    measuredAt: strOrNull(t.measuredAt), elapsedSeconds: count(t.elapsedSeconds),
+    remainingSeconds: count(t.remainingSeconds), estimatedFinishAt: strOrNull(t.estimatedFinishAt),
+    sampleCount: count(t.sampleCount) ?? 0, sampleTiles: count(t.sampleTiles) ?? 0,
+    sampleElapsedSeconds: count(t.sampleElapsedSeconds) ?? 0,
+    unitsPerSecond: count(t.unitsPerSecond),
+    batchSeconds: count(t.batchSeconds), currentBatchOverdue: t.currentBatchOverdue === true,
+    assumption: str(t.assumption),
+  } : null;
   return {
     schemaVersion: 1,
     job,
@@ -217,6 +244,7 @@ export function parseStatus(raw: unknown): ProjectStatus {
     details,
     warnings,
     coverageMaps: parseCoverageMaps(raw.coverageMaps),
+    timing,
   };
 }
 
@@ -312,6 +340,40 @@ export function fmtAge(sec: number | null): string {
   if (sec < 3600) return `${Math.floor(sec / 60)} min ago`;
   if (sec < 86400) return `${Math.floor(sec / 3600)} h ${Math.floor((sec % 3600) / 60)} min ago`;
   return `${Math.floor(sec / 86400)} d ago`;
+}
+
+export function fmtDuration(seconds: number | null): string {
+  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return "–";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 1) return "<1 min";
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+}
+
+/** An old measurement must not keep counting down toward a credible-looking ETA. */
+export function phaseTimingView(s: ProjectStatus, now = Date.now(), unavailable = false) {
+  const t = s.timing;
+  if (!t) return null;
+  const age = ageSeconds(t.measuredAt, now);
+  const fresh = !unavailable && s.collector.ok && !isStale(s, now) && age !== null && age <= s.collector.staleAfterSeconds;
+  const running = fresh && s.state === "running" && !["paused", "complete", "different-invocation", "unavailable"].includes(t.status);
+  const elapsed = t.elapsedSeconds === null ? null : t.elapsedSeconds + (running ? age! : 0);
+  const end = t.estimatedFinishAt ? Date.parse(t.estimatedFinishAt) : NaN;
+  const estimated = running && t.status === "estimated" && t.remainingSeconds !== null && Number.isFinite(end) && end > now && t.sampleCount >= 3;
+  const remaining = estimated ? fmtDuration(Math.max(60, (end - now) / 1000)) :
+    !fresh ? "Update needed" : t.status === "paused" || s.state === "blocked" ? "Paused" : t.status === "complete" ? "Phase complete" : "Measuring…";
+  const finish = estimated ? new Intl.DateTimeFormat(undefined, {
+    weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short",
+  }).format(end) : "–";
+  const details = [
+    `${t.scopeLabel}.`,
+    t.sampleCount > 0 ? `${fmtInt(t.sampleCount)} completed intervals: ${fmtInt(t.sampleTiles)} tiles over ${fmtDuration(t.sampleElapsedSeconds)}.` : "Waiting for completed batches.",
+    t.unitsPerSecond !== null ? `Recent weighted rate: ${fmtInt(t.unitsPerSecond * 3600)} tiles/hour, including collection and handover.` : "",
+    estimated && elapsed !== null ? `Estimated run duration: ${fmtDuration(elapsed + (end - now) / 1000)}.` : "",
+    t.currentBatchOverdue ? "The current batch is taking longer than the recent full-pipeline estimate; its work remains pending." : "",
+    t.assumption,
+  ].filter(Boolean).join(" ");
+  return { elapsed: fmtDuration(elapsed), remaining, finish, details, scope: t.scopeLabel, estimated };
 }
 
 export function percent(completed: number, total: number): number {

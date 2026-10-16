@@ -1,6 +1,6 @@
 import { expect, it } from 'vite-plus/test';
 import { cellAt, clampZoom, describeCell, keyAction, matchState, moveCell, stepZoom } from '../../demo/status/coverage';
-import { isStale, parseStatus, percent, safeHref } from '../../demo/status/model';
+import { fmtDuration, isStale, parseStatus, percent, phaseTimingView, safeHref } from '../../demo/status/model';
 
 const at = Date.parse('2026-10-15T15:00:00Z');
 const snapshot = () => ({ schemaVersion: 1, job: { id: 'job', title: 'Current work' }, state: 'running',
@@ -23,6 +23,42 @@ it('checks source and census ages independently of a fresh local file rewrite', 
   expect(isStale({ ...data, sourceGeneratedAt: new Date(at - 91000).toISOString() }, at)).toBe(true);
   expect(isStale({ ...data, censusGeneratedAt: new Date(at - 181000).toISOString() }, at)).toBe(true);
   expect(isStale({ ...data, sourceGeneratedAt: null }, at)).toBe(true);
+});
+
+const timedSnapshot = () => ({ ...snapshot(), timing: {
+  status: 'estimated', scopeLabel: 'Current offshore phase', measuredAt: new Date(at - 10000).toISOString(),
+  elapsedSeconds: 3600, remainingSeconds: 7200, estimatedFinishAt: new Date(at + 7190000).toISOString(),
+  sampleCount: 4, sampleTiles: 8192, sampleElapsedSeconds: 1200, unitsPerSecond: 6.8,
+  assumption: 'Same processing mode continues.',
+} });
+
+it('shows run duration and phase ETA from fresh completed-batch measurements', () => {
+  const data = parseStatus(timedSnapshot());
+  const view = phaseTimingView(data, at)!;
+  expect(view.estimated).toBe(true);
+  expect(view.elapsed).toBe('1 h 0 min');
+  expect(view.remaining).toBe('1 h 59 min');
+  expect(view.finish).not.toBe('–');
+  expect(view.details).toContain('8,192 tiles over 20 min');
+  expect(view.details).toContain('including collection and handover');
+  expect(view.scope).toBe('Current offshore phase');
+  expect(parseStatus(snapshot()).timing).toBeNull();
+  expect(fmtDuration(86401)).toBe('24 h 0 min');
+});
+
+it('stops the ETA countdown on stale, paused, failed, or undersampled data', () => {
+  const data = parseStatus(timedSnapshot());
+  const stale = phaseTimingView(data, at + 181000)!;
+  expect(stale.estimated).toBe(false);
+  expect(stale.remaining).toBe('Update needed');
+  expect(stale.finish).toBe('–');
+  expect(phaseTimingView({ ...data, state: 'blocked' }, at)!.remaining).toBe('Paused');
+  const phasePaused = phaseTimingView({ ...data, timing: { ...data.timing!, status: 'paused', elapsedSeconds: 3599 } }, at)!;
+  expect(phasePaused.elapsed).toBe('59 min');
+  expect(phasePaused.remaining).toBe('Paused');
+  expect(phaseTimingView(data, at, true)!.estimated).toBe(false);
+  expect(phaseTimingView({ ...data, timing: { ...data.timing!, sampleCount: 2 } }, at)!.estimated).toBe(false);
+  expect(phaseTimingView({ ...data, timing: { ...data.timing!, estimatedFinishAt: 'bad date' } }, at)!.estimated).toBe(false);
 });
 
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAHnOcQAAAAABJRU5ErkJggg==';

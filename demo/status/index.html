@@ -47,6 +47,14 @@
               <div id="bar" class="bar" role="progressbar" aria-label="Provisional progress" aria-valuemin="0" aria-valuemax="100">
                 <span id="bar-fill"></span>
               </div>
+              <div id="timing" hidden>
+                <dl class="timing-row" aria-label="Current phase timing">
+                  <div><dt>Run duration</dt><dd id="elapsed">–</dd></div>
+                  <div><dt>Estimated remaining</dt><dd id="remaining">Measuring…</dd></div>
+                  <div class="timing-finish"><dt>Estimated finish · local time</dt><dd id="finish">–</dd></div>
+                </dl>
+                <details class="timing-details"><summary id="timing-scope">About this estimate</summary><p id="timing-basis" class="muted small"></p></details>
+              </div>
               <p class="note">Counts are provisional until verification; final dataset completion is separate.</p>
               <p id="basis" class="muted small"></p>
             </section>

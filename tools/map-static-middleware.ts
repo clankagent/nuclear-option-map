@@ -57,10 +57,17 @@ export function createMapStaticMiddleware(mapsRoot: string) {
       res.setHeader('Cache-Control', mapRasterCacheControl(rawUrl) ?? 'no-cache');
       if (req.method === 'HEAD') { res.end(); return; }
       const stream = createReadStream(realFile);
+      // A cancelled response does not close its piped source automatically.
+      // Close the file too, so Windows can replace live status/tile files.
+      const closeSource = () => stream.destroy();
+      res.once('close', closeSource);
+      stream.once('close', () => res.off('close', closeSource));
       stream.on('error', () => {
+        if (res.destroyed) return;
         if (res.headersSent) res.destroy();
         else { res.removeHeader('Content-Length'); fail(404); }
       });
+      if (res.destroyed) { stream.destroy(); return; }
       stream.pipe(res);
     } catch { fail(404); }
   };
