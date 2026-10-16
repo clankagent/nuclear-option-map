@@ -42,6 +42,8 @@ Keep terminal evidence for each call. Provider app lists can omit older stopped 
 
 Make collection resumable too. Save bounded chunks with hashes and exact job IDs, and commit completed chunks before processing more files. After a timeout, recover and verify those chunks, derive the remaining IDs from the frozen job set, and collect only those IDs. A collection failure does not require another render or a fresh pass over every completed result.
 
+Bound concurrent reads, in-flight payloads and chunk sizes. Build each archive chunk locally, then copy it sequentially to remote storage with a bounded buffer; measure read, archive, copy and commit time separately. Stop admitting new work early enough to finish and commit the current chunk within the function deadline. Verify that recovered and newly collected job sets form the exact frozen set, with no duplicates or omissions, before staging.
+
 For a persistent Blender preparation process, clear scene-dependent and image-pointer caches whenever a file is loaded. Blender can reuse an image pointer for a different image. Reuse content-hash caches only after checking the actual image header and both dimensions; equal pixel counts do not establish equal width and height. Bind prepared scenes and receipts to their input and helper hashes. If a cache defect is found, independently audit earlier outputs that used it before retaining them.
 
 If a correction retires no-op jobs, write a new plan and disposition record. Prove that each retained job's payload is unchanged before carrying forward its completed preparation or render receipt. Record no-ops as baseline reuse, never as provider-completed renders. Stop new submissions, resolve or drain in-flight work and release the exclusive render lane before starting a corrected controller. Keep uncertain submissions unresolved until their actual status is known. The new controller must retain the remaining resource budget. Keep it responsive during paid calls so it can record completion and support cancellation. Hold the render lane for the full call.
@@ -107,6 +109,8 @@ Check the complete finishing input set on the machine that will run it, includin
 Test path checks against the actual mounted storage. Resolve the trusted mount root once, then check the owned relative paths beneath it and reject unexpected links inside those paths. Walking every ancestor can incorrectly reject a provider-managed mount alias and block valid results. Keep exact file-size and hash checks after resolving paths.
 
 Unchanged tiles use hardlinks by default, so the candidate must be on the same filesystem as the baseline. Use `--copy-base` when an independent byte copy is required and storage permits it. Changed tiles always use new files. Do not edit, resave, chmod or truncate reused hardlinks after staging.
+
+Keep the CPU stage within its qualified memory bound. Report process RSS separately from cgroup memory, which can include file cache; reaching the cgroup limit does not by itself establish an out-of-memory failure. Check memory events and exit status before deciding whether the bound needs to change.
 
 Required covered files must exist. The baseline must already be accepted and immutable; this command does not rehash every unchanged baseline file. Sparse absent tiles can contribute the descriptor's explicit opaque `fillRgba8`; a missing covered file is an error. Replacement images must match the existing tile dimensions and be opaque. Coverage remains unchanged.
 
