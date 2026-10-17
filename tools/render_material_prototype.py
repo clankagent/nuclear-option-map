@@ -18,6 +18,8 @@ from unity_normal_map import build_dxt5nm_encoded
 from terrain_detail import build_surface, build_variant_macro, texture_color_space
 from terrain_texture_variant import resolve_texture_variant
 from render_safety import guarded_render
+from source_vertex_colors import load_color_binding, attach_color_uvs
+from mesh_light_material import static_blinking_profile, build_static_blinking_light
 
 
 CONVERSION = Matrix(((1, 0, 0, 0), (0, 0, -1, 0), (0, 1, 0, 0), (0, 0, 0, 1)))
@@ -51,11 +53,12 @@ def _obj_index(raw, count):
     return value - 1 if value > 0 else count + value
 
 
-def read_obj(path, name, material_count):
+def read_obj(path, name, material_count, *, vertex_colors_file=None):
     positions, uvs, normals = [], [], []
     keyed = {}
     vertices, loop_uvs, loop_normals = [], [], []
     faces, face_materials = [], []
+    source_indices = []
     current_group = -1
     with path.open("r", encoding="utf-8", errors="replace") as stream:
         for raw in stream:
@@ -82,6 +85,7 @@ def read_obj(path, name, material_count):
                     if key not in keyed:
                         keyed[key] = len(vertices)
                         vertices.append(positions[vi])
+                        source_indices.append(vi)
                         loop_uvs.append(uvs[ti] if ti >= 0 else (0.0, 0.0))
                         loop_normals.append(normals[ni] if ni >= 0 else (0.0, 0.0, 0.0))
                     corners.append(keyed[key])
@@ -102,6 +106,9 @@ def read_obj(path, name, material_count):
             uv_layer.data[loop_i].uv = loop_uvs[vertex_i]
     if normals and hasattr(mesh, "normals_split_custom_set"):
         mesh.normals_split_custom_set([loop_normals[loop.vertex_index] for loop in mesh.loops])
+    if vertex_colors_file is not None:
+        source_colors = load_color_binding(vertex_colors_file, path, len(positions))
+        attach_color_uvs(mesh, [source_colors[index] for index in source_indices])
     return mesh
 
 
@@ -120,6 +127,11 @@ def make_material(record, image_cache, texture_variant=None):
     nodes, links = mat.node_tree.nodes, mat.node_tree.links
     nodes.clear()
     output = nodes.new("ShaderNodeOutputMaterial")
+    if static_blinking_profile(record) is not None:
+        surface = build_static_blinking_light(nodes, links, record, load_image)
+        links.new(surface, output.inputs["Surface"])
+        mat["staticMeshLight"] = "zero-frequency additive camera effect; secondary rays transparent"
+        return mat
     terrain_shader = record.get("shaderName") == "Shader Graphs/TerrainShader"
     if terrain_shader:
         texture_variant = resolve_texture_variant(texture_variant)
@@ -288,9 +300,17 @@ def build(scene_file, report_file, output, map_id, texture_variant=None):
                 material_cache[key] = make_material(material_rows[key], image_cache, texture_variant or False)
             mats.append(material_cache[key])
         mesh_path = Path(scene_file).parent / record["file"]
+        color_file = record.get("vertexColorsFile")
+        if color_file is not None:
+            if Path(color_file).name != color_file:
+                raise ValueError("Vertex-color filename must stay within the geometry folder")
+            color_file = Path(scene_file).parent / color_file
+        if any(static_blinking_profile(material_rows[ident(ref)]) is not None for ref in assigned) and color_file is None:
+            raise ValueError("Blinking-light export requires source vertex colors; re-extract geometry")
         cache_key = (record["file"], tuple(ident(m) for m in assigned))
         if cache_key not in mesh_cache:
-            mesh_cache[cache_key] = read_obj(mesh_path, record["name"], len(mats))
+            mesh_cache[cache_key] = read_obj(mesh_path, record["name"], len(mats),
+                                           vertex_colors_file=color_file)
             for mat in mats:
                 mesh_cache[cache_key].materials.append(mat)
         obj = bpy.data.objects.new(record["name"], mesh_cache[cache_key])

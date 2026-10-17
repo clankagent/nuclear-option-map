@@ -3,7 +3,9 @@ import argparse
 import json
 from pathlib import Path
 import UnityPy
+from UnityPy.helpers.MeshHelper import MeshHandler
 from map_assets import metadata, provenance, resolve, script_name, load_assets, monobehaviour_header, safe_id
+from source_vertex_colors import color_binding
 
 
 def extract(source, output, report_path, geometry=False):
@@ -74,6 +76,7 @@ def export_geometry(roots, output):
     output.mkdir(parents=True, exist_ok=True)
     records, errors = [], []
     exported = set()
+    color_files = {}
     previous = {}
     scene_path = output / "scene.json"
     if scene_path.exists():
@@ -121,12 +124,22 @@ def export_geometry(roots, output):
                                         raise ValueError("UnityPy could not decode this mesh as OBJ")
                                     target.write_text(mesh_text, encoding="utf-8", newline="")
                             exported.add(mesh_key)
+                            handler = MeshHandler(mesh_obj.parse_as_object())
+                            handler.process()
+                            if handler.m_Colors:
+                                color_file = target.with_suffix(".colors.json")
+                                binding = color_binding(target, handler.m_Vertices,
+                                                        [list(c) for c in handler.m_Colors])
+                                color_file.write_text(json.dumps(binding), encoding="utf-8")
+                                color_files[mesh_key] = color_file.name
                         transform = next((resolve(go, c.get("component", c)) for c in tree.get("m_Component", [])
                                           if resolve(go, c.get("component", c)).type.name == "Transform"), None)
                         records.append({"map": map_id, **provenance(comp), "gameObject": provenance(go),
                                         "name": tree.get("m_Name", ""),
                                         "transform": provenance(transform) if transform else None,
                                         "mesh": provenance(mesh_obj), "file": filename, "space": "local"})
+                        if mesh_key in color_files:
+                            records[-1]["vertexColorsFile"] = color_files[mesh_key]
             except Exception as exc:
                 errors.append({"map": map_id, **provenance(go), "error": str(exc)})
     result = {"status": "partial", "coverage": "MapSettings prefab descendants only",

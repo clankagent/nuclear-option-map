@@ -1,5 +1,13 @@
 # Offline extraction
 
+`audit_black_regions.py` can inspect a bounded set of existing Satellite tiles for exact RGB black. It reads tile cores, joins four-connected regions across scanned seams, and writes world bounds, source hashes and a candidate atlas. Black pixels alone do not identify a rendering defect: shadows and gaps can also be black. The default selection is partial. Use an explicit coordinate list to inspect a known region.
+
+```sh
+uv run --script tools/audit_black_regions.py --map heartland-46396 --level 10 --tiles work/region-tiles.json --limit 128 --output work/black-candidates
+```
+
+The coordinate file contains `[[x, y], ...]`. `--catalog` supplies map dimensions; `--variants` selects the current Satellite descriptors. The scanner does not render or modify imagery.
+
 Install the pinned extraction environment with `uv sync`. Supply a local, unpacked client Unity Data directory; keep it under ignored `work/`. Originals remain untouched.
 
 ```powershell
@@ -21,6 +29,10 @@ blender --background --python tools/import_blender.py -- demo/public/maps/geomet
 ```
 
 This importer constructs geometry without game shaders or UV/material fidelity. Blender execution must be verified separately on a Blender-equipped machine; Python extraction tests do not verify its rendering.
+
+Geometry extraction also writes hash-bound `.colors.json` sidecars for meshes with source vertex colors. The material importer retains their source-index association across OBJ UV and normal seams. Byte colors remain linear UNorm8/255; normalized float colors retain their values. Two reserved UV layers carry those channels through physical clipping while `UVMap` remains the texture sampler.
+
+Static `Shader Graphs/MeshLightBlinking` materials use the source light-shape red channel and vertex colors as a transparent, additive camera effect. They do not obscure roofs or cast solid shadows. Both saved frequencies must be zero; temporal profiles are rejected. Re-extract geometry if an older export lacks the required color sidecar. The specular lobe approximates URP lighting. This path supports downward orthographic satellite cameras.
 
 For a private overhead scene with serialized materials and UVs, run `tools/render_material_prototype.py` in Blender 4+ with `geometry/scene.json`, the matching `work/extraction/material-report.json`, an ignored output folder, and a manifest map ID. It saves a packed `.blend` plus exact-bounds overview and a 3.84 km close-up when an `airbase_city` object exists. It preserves OBJ UVs and resolves complete transform hierarchies into world placements, excludes LOD1 child meshes when a primary ancestor mesh is present, ignores alpha from opaque URP textures, and omits `Shader Graphs/surf` because its `_Foam` input is an animated foam mask rather than a static base color. Unity DXT5nm normals use alpha for tangent X and green for Y; Blender reconstructs positive Z before normal mapping (`tests/extraction/test_dxt5nm.py` verifies bounded decoding). Terrain combines the referenced macro imagery with full-color sand, grass, rock, field and lush textures, red-channel masks and layered normals. A rough lit surface receives sunlight and casts terrain shadows. Source color-space flags, UV frequencies and alpha blends are retained. Small procedural UV breakup and dynamic clouds are omitted, so the offline scene remains an approximation of the complete game shader. All proprietary source textures and resulting scenes stay in ignored `work/`.
 
