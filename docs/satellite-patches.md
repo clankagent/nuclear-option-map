@@ -10,6 +10,8 @@ Record the accepted dataset's descriptor and completion inventory, source scene 
 
 Identify the exact source objects and submeshes to change. Preserve each complete world transform, including parent rotation and scale. For repeated geometry, identify whole instances before replacing their component faces. A material can occur in both dedicated scenery and a mixed-material building; replacing the whole building is not a valid shortcut.
 
+For mixed meshes, verify the exact retained non-target polygons, material assignments, UV layers, active UV layer and custom split normals after saving and reopening the prepared scene. Check vertex colors when the source has them. Compare retained faces as a multiset so duplicate faces remain accounted for. Measure and bound any normal-encoding round-trip difference instead of claiming bitwise identity. An in-memory comparison alone does not verify the saved input. If retaining a whole building as context preserves these attributes better than clipping it, explicitly count and bound its full geometry, verify camera and output coverage, and record that this context mesh remains unclipped.
+
 Record the new model and texture hashes. An isolated model preview establishes appearance at the inspected scale. A representative scene crop must establish placement, scale, lighting, shadows, material behavior and render cost before a large batch starts. Instance reuse in the source scene does not by itself establish that a cropper preserves instancing or keeps triangle counts bounded.
 
 ## 2. Select the render footprint
