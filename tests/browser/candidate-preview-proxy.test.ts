@@ -10,7 +10,7 @@ const close = (s: Server) => new Promise<void>(resolve => s.close(() => resolve(
 it('requires explicit loopback origin and rejects noncandidate paths', () => {
   expect(createCandidatePreviewProxy(undefined)).toBeUndefined();
   for (const url of ['http://example.org:80', 'http://0.0.0.0:80', 'http://127.0.0.1:80/elsewhere', 'http://user:pass@127.0.0.1:80', 'https://127.0.0.1:80']) expect(() => createCandidatePreviewProxy(url)).toThrow();
-  for (const p of ['/heartland/pyramid.json', '/ignus/9/22/3.webp', '/candidate-source/datasets/heartland/10/421/165.webp']) expect(candidateAssetPath(p)).toBe(p);
+  for (const p of ['/heartland/pyramid.json', '/ignus/9/22/3.webp', '/candidate-source/datasets/heartland/10/421/165.webp', '/incremental/coverage.json', '/incremental/ignus/10/120/1.webp']) expect(candidateAssetPath(p)).toBe(p);
   for (const p of ['/heartland/../candidate-complete.json', '/heartland/%2e%2e/pyramid.json', '/heartland/0/0%2f1/0.webp', '/heartland\\0/0/0.webp', '/heartland/10/0/0.webp', '/candidate-source/datasets/heartland/9/0/0.webp', '/heartland/', '/secret.json']) expect(candidateAssetPath(p)).toBeUndefined();
 });
 it('streams only whitelisted GET/HEAD to its fixed origin', async () => {

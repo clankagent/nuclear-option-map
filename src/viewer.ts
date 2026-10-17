@@ -1,5 +1,5 @@
 import init, { MapViewport } from '../pkg/nuclear_option_map.js';
-import { gridReference, gridRowLabel, validateMap, validTint, type MapDefinition, type ContourInterval } from './catalog';
+import { gridReference, gridRowLabel, validateMap, validTint, type MapDefinition, type ContourInterval, type TilePyramid } from './catalog';
 import { disposeRaster, drawRaster, tintRaster, type TiledRaster } from './tiled-raster';
 import { PyramidRenderer, type TileStats } from './pyramid';
 import { ContourRenderer } from './contours';
@@ -220,6 +220,14 @@ export class MapViewer {
     this.tint = tint; this.tinted = tinted; this.resetPyramid(); this.changed();
   }
   zoomIn() { this.zoomBy(1.5); }
+  /** Update published raster routes while keeping the viewport and loaded imagery. */
+  updateRasterTiles(tiles: TilePyramid) {
+    this.assertAlive();
+    if (!this.map || !this.pyramid) throw new Error('No raster pyramid is active');
+    const validated = validateMap({ ...this.map, tiles }).tiles!;
+    this.pyramid.replacePyramid(validated);
+    this.map = { ...this.map, tiles: validated }; this.changed();
+  }
   zoomOut() { this.zoomBy(1 / 1.5); }
   setMaxZoom(max: number) { this.assertAlive(); if (typeof max !== 'number') throw new TypeError('Maximum zoom must be a number'); this.viewport.setMaxZoom(max); this.maxZoom = max; this.changed(); }
   private zoomBy(factor: number) { this.assertAlive(); this.viewport.zoomAt(factor, this.width / 2, this.height / 2); this.changed(); }

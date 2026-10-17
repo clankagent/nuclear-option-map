@@ -1,5 +1,6 @@
 import { createMapViewer, loadMapCatalog, validateMapCatalog } from '../src/index.ts';
 import type { MapDefinition, ContourPreference, ContourInterval, TopoStyle } from '../src/index.ts';
+import { parseWaterPreview, preferPublishedWater, type WaterPreview } from './water-preview';
 
 type Viewer = Awaited<ReturnType<typeof createMapViewer>>;
 type ViewState = Viewer['state'];
@@ -11,6 +12,10 @@ type Settings = { grid: boolean; labels: Labels; tint: string; contourInterval: 
 const ORIGINAL = 'original';
 const SETTINGS_KEY = 'nuclear-option-map.settings.v3';
 const VARIANTS_URL = '/maps/variants.json';
+const waterPreviewEnabled = new URLSearchParams(location.search).get('waterPreview') === '1';
+let waterPreview: WaterPreview | null = null;
+let previewRefreshFailed = false;
+let previewRefreshing = false;
 const DEFAULTS: Settings = { grid: true, labels: 'edges', tint: '#6f9d75', contourInterval: 'auto', contourSmoothingMeters: 40, topoStyle: 'elevation-colors', topoStrength: .45, topoHillshade: true };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -151,6 +156,20 @@ function onViewChange(state: ViewState) {
   intervalEl.textContent = state.contourInterval ? `Contours ${state.contourInterval} m${state.contourPreference === 'auto' ? ' · auto' : ''}` : '';
   intervalEl.hidden = !state.contourInterval;
   if (state.map) showSize(state.map);
+  showWaterPreviewStatus();
+}
+
+function showWaterPreviewStatus() {
+  const label = $('water-preview-status');
+  label.hidden = !waterPreviewEnabled || currentVariant !== 'satellite';
+  $('water-preview-coverage').hidden = label.hidden;
+  if (label.hidden) return;
+  const family = current?.id.startsWith('ignus-') ? 'ignus' : 'heartland';
+  const progress = waterPreview?.maps[family];
+  label.textContent = !progress ? 'Partial water preview unavailable · accepted imagery shown' : progress.scopeCount === null
+    ? 'Partial preview · no new water tiles on this map yet'
+    : `Partial preview · ${num(progress.committedCount, 0)} verified water tiles · ${num(progress.remainingCount!, 0)} pending in this water scope`;
+  label.title = `Accepted tree/light imagery fills other locations. Overview and lower zooms retain their accepted baseline until rebuilt. Shore and whole-map completion are not claimed.${previewRefreshFailed ? ' Refresh failed; the last verified snapshot remains selected.' : ''}`;
 }
 
 function onPointerMove(p: { x: number; z: number; insideMap: boolean; gridReference?: string | null } | null) {
@@ -181,6 +200,7 @@ async function showMap(map: MapDefinition, variantId: string) {
     hideOverlay();
     onPointerMove(null);
     showSize(map);
+    showWaterPreviewStatus();
   } catch (e) {
     if (token !== switchToken) return;
     viewer.setMode(effectiveMode());
@@ -203,7 +223,7 @@ async function showMap(map: MapDefinition, variantId: string) {
 function selectMap(id: string) {
   const map = maps.find(m => m.id === id);
   if (!map) return Promise.resolve();
-  return showMap(map, ORIGINAL);
+  return showMap(map, waterPreviewEnabled ? 'satellite' : ORIGINAL);
 }
 
 function bindControls() {
@@ -303,13 +323,15 @@ function fillMapList() {
 }
 
 /** Optional private variant list. Absent or malformed means no extra views; nothing is invented. */
-async function loadVariants() {
+async function loadVariants(signal?: AbortSignal) {
   try {
-    const response = await fetch(VARIANTS_URL);
+    const response = await fetch(VARIANTS_URL, { cache: 'no-store', signal });
     if (!response.ok) return;
-    const data = await response.json() as { schemaVersion?: unknown; maps?: Record<string, unknown> };
+    const raw = await response.text();
+    const data = JSON.parse(raw) as { schemaVersion?: unknown; maps?: Record<string, unknown> };
     if (data?.schemaVersion !== 1 || !data.maps || typeof data.maps !== 'object') return;
     const base = response.url || new URL(VARIANTS_URL, location.href).href;
+    const nextVariants = new Map<string, Variant[]>();
     for (const [mapId, list] of Object.entries(data.maps)) {
       if (!Array.isArray(list) || !maps.some(m => m.id === mapId)) continue;
       const ids = new Set<string>([ORIGINAL]);
@@ -328,9 +350,40 @@ async function loadVariants() {
         ids.add(v.id);
         ok.push({ id: v.id, label: v.label.trim(), image: definition.image, tiles: definition.tiles, contours: definition.contours, topography: definition.topography, kind: v.kind });
       }
-      if (ok.length) variants.set(mapId, ok);
+      if (ok.length) nextVariants.set(mapId, ok);
     }
-  } catch { /* optional file */ }
+    signal?.throwIfAborted();
+    variants = nextVariants;
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    /* optional file */
+  }
+}
+
+async function refreshWaterPreview(initial = false) {
+  if (!waterPreviewEnabled || loading || previewRefreshing) return;
+  previewRefreshing = true;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch('/maps/candidate-v8/incremental/coverage.json', { cache: 'no-store', signal: controller.signal });
+    if (!response.ok) throw new Error('Published water snapshot unavailable');
+    const declared = Number(response.headers.get('Content-Length'));
+    if (!Number.isSafeInteger(declared) || declared < 0 || declared > 256 * 1024) throw new Error('Water metadata cap');
+    const next = parseWaterPreview(await response.json());
+    await loadVariants(controller.signal); // Share the full refresh deadline, including its response body.
+    for (const [id, list] of variants) {
+      const family = id.startsWith('ignus-') ? 'ignus' : id.startsWith('heartland-') ? 'heartland' : null;
+      const satellite = list.find(v => v.id === 'satellite');
+      if (family && satellite?.tiles) satellite.tiles = preferPublishedWater(satellite.tiles, next.maps[family]);
+    }
+    waterPreview = next; previewRefreshFailed = false;
+    if (!initial && current && currentVariant === 'satellite' && !loading) {
+      const satellite = variants.get(current.id)?.find(v => v.id === 'satellite');
+      if (satellite?.tiles) viewer?.updateRasterTiles(satellite.tiles);
+    }
+  } catch { previewRefreshFailed = true; }
+  finally { clearTimeout(timer); previewRefreshing = false; showWaterPreviewStatus(); }
 }
 
 async function init() {
@@ -389,9 +442,11 @@ async function init() {
   }
 
   await loadVariants();
+  await refreshWaterPreview(true);
   fillMapList();
   syncControls();
   await selectMap(maps[0].id);
+  if (waterPreviewEnabled) setInterval(() => { if (!document.hidden) void refreshWaterPreview(); }, 30000);
 }
 
 void init();

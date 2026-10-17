@@ -50,6 +50,16 @@ describe('map catalog contracts', () => {
     for (const invalid of [null, {}, [{ x: -1, y: 0, columns: 1, rows: 1 }], [{ x: 1, y: 0, columns: 2, rows: 1 }], [{ x: 0, y: 0, columns: 0, rows: 1 }], [{ x: 0, y: .5, columns: 1, rows: 1 }]]) expect(() => validateMap(withCoverage(invalid))).toThrow('coverage');
     expect(() => validateMap(withCoverage([], 0))).toThrow('root');
   });
+  it('validates and resolves preferred replacement coverage independently of baseline overrides', () => {
+    const preferred = { urlTemplate: 'water/{x}/{y}.webp', coverage: [{ x: 1, y: 0, columns: 1, rows: 1 }] };
+    const level = { level: 0, width: 1024, height: 512, columns: 2, rows: 1, urlTemplate: 'base/{x}/{y}.webp', preferred };
+    const value = { ...map, tiles: { tileSize: 512, levels: [level] } };
+    const result = validateMapCatalog({ schemaVersion: 1, maps: [value] }, 'https://test/maps/catalog.json');
+    expect(result.maps[0].tiles!.levels[0].preferred!.urlTemplate).toBe('https://test/maps/water/{x}/{y}.webp');
+    result.maps[0].tiles!.levels[0].preferred!.coverage[0].x = 0;
+    expect(preferred.coverage[0].x).toBe(1);
+    for (const bad of [{ ...preferred, coverage: [{ x: 2, y: 0, columns: 1, rows: 1 }] }, { ...preferred, urlTemplate: 'javascript:{x}/{y}' }]) expect(() => validateMapCatalog({ schemaVersion: 1, maps: [{ ...value, tiles: { ...value.tiles, levels: [{ ...level, preferred: bad }] } }] }, 'https://test/')).toThrow();
+  });
   it('validates and independently resolves lossless ground-height pyramids', () => {
     const topography = { minHeightMeters: 0, maxHeightMeters: 1000, heightStepMeters: .1, tiles: { tileSize: 256, gutter: 2, levels: [{ level: 0, width: 256, height: 256, columns: 1, rows: 1, urlTemplate: 'heights/{x}/{y}.png?v=abcd' }] } };
     const result = validateMapCatalog({ schemaVersion: 1, maps: [{ ...map, topography }] }, 'https://example.org/maps/manifest.json').maps[0];

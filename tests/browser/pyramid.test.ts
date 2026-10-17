@@ -15,6 +15,60 @@ function fixture(budget?: number, source: TilePyramid = pyramid) {
   return { renderer, requests, redraw, image, ctx, tick: (value: number) => { now = value; } };
 }
 afterEach(() => vi.unstubAllGlobals());
+it('prefers verified replacements over baseline overrides and falls back to the same accepted tile', async () => {
+  const source = { ...pyramid, levels: pyramid.levels.map(l => l.level === 1 ? { ...l, urlOverrides: { '0/0': 'https://accepted-tree/0/0' }, preferred: { urlTemplate: 'https://water/{x}/{y}', coverage: [{ x: 0, y: 0, columns: 1, rows: 1 }] } } : l) };
+  const f = fixture(undefined, source);
+  f.renderer.update({ ...view, width: 1024, height: 1024 });
+  expect(f.requests.some(r => r.url === 'https://water/0/0')).toBe(true);
+  expect(f.requests.some(r => r.url === 'https://accepted-tree/0/0')).toBe(false);
+  f.requests.find(r => r.url === 'https://water/0/0')!.reject(new Error('unavailable'));
+  await flush();
+  expect(f.requests.some(r => r.url === 'https://accepted-tree/0/0')).toBe(true);
+  expect(f.requests.some(r => r.url === 'https://test/1/1/0')).toBe(true);
+  f.renderer.destroy();
+});
+it('adds only declared preferred cells outside baseline coverage', () => {
+  const source = { ...pyramid, levels: pyramid.levels.map(l => l.level === 1 ? { ...l, coverage: [], preferred: { urlTemplate: 'https://water/{x}/{y}', coverage: [{ x: 0, y: 0, columns: 1, rows: 1 }] } } : l) };
+  const f = fixture(undefined, source);
+  f.renderer.update({ ...view, width: 1024, height: 1024 });
+  expect(f.requests.map(r => r.url)).toEqual(['https://test/0/0/0', 'https://water/0/0']);
+  f.renderer.destroy();
+});
+it('refreshes only changed routes and retains the old tile through load and fade', async () => {
+  const f = fixture(); const zoom = { ...view, width: 1024, height: 1024 };
+  f.renderer.update(zoom);
+  const originals = f.requests.map(request => { const image = f.image(); request.resolve(image); return image; });
+  await flush(); f.tick(200);
+  const old = originals[f.requests.findIndex(r => r.url === 'https://test/1/0/0')];
+  const count = f.requests.length;
+  const next = { ...pyramid, levels: pyramid.levels.map(l => l.level === 1 ? { ...l, preferred: { urlTemplate: 'https://water/{x}/{y}', coverage: [{ x: 0, y: 0, columns: 1, rows: 1 }] } } : l) };
+  f.renderer.replacePyramid(next); f.renderer.update(zoom);
+  expect(f.requests.slice(count).map(r => r.url)).toEqual(['https://water/0/0']);
+  f.renderer.draw(f.ctx, zoom); expect(old.dispose).not.toHaveBeenCalled();
+  const replacement = f.image(); f.requests.at(-1)!.resolve(replacement); await flush();
+  (f.ctx.drawImage as ReturnType<typeof vi.fn>).mockClear(); f.renderer.draw(f.ctx, zoom);
+  expect((f.ctx.drawImage as ReturnType<typeof vi.fn>).mock.calls.some(call => call[0] === old.image)).toBe(true);
+  expect(old.dispose).not.toHaveBeenCalled();
+  f.tick(400); f.renderer.draw(f.ctx, zoom); expect(old.dispose).toHaveBeenCalledOnce();
+  expect(originals.filter(image => image !== old).every(image => image.dispose.mock.calls.length === 0)).toBe(true);
+  f.renderer.replacePyramid(next); f.renderer.update(zoom); expect(f.requests).toHaveLength(count + 1);
+  f.renderer.destroy();
+});
+it('retries a transient preferred failure without reloading its cached baseline or needing a new snapshot', async () => {
+  const f = fixture(); const zoom = { ...view, width: 1024, height: 1024 };
+  f.renderer.update(zoom); for (const request of f.requests) request.resolve(f.image()); await flush(); f.tick(200);
+  const next = { ...pyramid, levels: pyramid.levels.map(l => l.level === 1 ? { ...l, preferred: { urlTemplate: 'https://water/{x}/{y}', coverage: [{ x: 0, y: 0, columns: 1, rows: 1 }] } } : l) };
+  f.renderer.replacePyramid(next); f.renderer.update(zoom);
+  f.requests.at(-1)!.reject(new Error('temporary')); await flush();
+  const count = f.requests.length;
+  f.tick(699); f.renderer.update(zoom); expect(f.requests).toHaveLength(count);
+  f.tick(700); f.renderer.update(zoom);
+  expect(f.requests.slice(count).map(r => r.url)).toEqual(['https://water/0/0']);
+  f.requests.at(-1)!.resolve(f.image()); await flush(); f.tick(1000); f.renderer.update(zoom);
+  expect(f.requests.filter(r => r.url === 'https://test/1/0/0')).toHaveLength(1);
+  expect(f.requests.filter(r => r.url === 'https://water/0/0')).toHaveLength(2);
+  f.renderer.destroy();
+});
 it('requests only precomputed sparse tiles and fades them over complete ancestor coverage', async () => {
   const sparse = { ...pyramid, levels: pyramid.levels.map(l => ({ ...l, ...(l.level === 1 ? { coverage: [] } : l.level === 2 ? { coverage: [{ x: 0, y: 0, columns: 1, rows: 1 }] } : {}) })) };
   const f = fixture(undefined, sparse), zoom = { ...view, width: 2048, height: 2048, screenWidth: 1024, screenHeight: 1024 };

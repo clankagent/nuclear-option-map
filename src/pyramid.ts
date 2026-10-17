@@ -1,8 +1,8 @@
 import type { TilePyramid, PyramidLevel } from './catalog';
-import { tileAvailable } from './catalog';
+import { tileAvailable, baselineTileAvailable, preferredTileAvailable } from './catalog';
 export interface TileImage { image: CanvasImageSource; width: number; height: number; dispose(): void }
 export type TileLoader = (url: string, signal: AbortSignal) => Promise<TileImage>;
-interface Tile { key: string; level: number; x: number; y: number; image: TileImage; ready: number; used: number; bytes: number }
+interface Tile { key: string; level: number; x: number; y: number; image: TileImage; sourceUrl: string; previous?: TileImage; ready: number; used: number; bytes: number }
 interface Request { key: string; level: number; x: number; y: number; priority: number }
 export interface TileStats { pending: number; visiblePending: number; cached: number; level: number; bytes: number }
 export interface RasterView { x: number; y: number; width: number; height: number; screenWidth: number; screenHeight: number; dpr: number }
@@ -14,6 +14,7 @@ export class PyramidRenderer {
   private inflight = new Set<AbortController>();
   private queue: Request[] = [];
   private failed = new Map<string, { attempts: number; retryAt: number }>();
+  private stale = new Set<string>();
   private wanted = new Set<string>();
   private visible = new Set<string>();
   private protected = new Set<string>();
@@ -23,8 +24,26 @@ export class PyramidRenderer {
   private frame = 0;
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
   constructor(private pyramid: TilePyramid, private loader: TileLoader, private redraw: () => void, private budget = 128 * 1024 * 1024, private now = () => performance.now(), private hardBudget = false) {}
-  get stats(): TileStats { return { pending: this.queue.length + this.active.size, visiblePending: [...this.visible].filter(key => !this.cache.has(key)).length, cached: this.cache.size, level: this.level, bytes: [...this.cache.values()].reduce((n, t) => n + t.bytes, 0) }; }
+  get stats(): TileStats { return { pending: this.queue.length + this.active.size, visiblePending: [...this.visible].filter(key => !this.cache.has(key) || this.stale.has(key)).length, cached: this.cache.size, level: this.level, bytes: [...this.cache.values()].reduce((n, t) => n + t.bytes, 0) }; }
   private key(level: number, x: number, y: number) { return `${level}/${x}/${y}`; }
+  private url(pyramid: TilePyramid, level: number, x: number, y: number) {
+    const l = pyramid.levels[level];
+    const template = preferredTileAvailable(l, x, y) ? l.preferred!.urlTemplate : l.urlOverrides?.[`${x}/${y}`] ?? l.urlTemplate;
+    return template.replaceAll('{z}', String(level)).replaceAll('{x}', String(x)).replaceAll('{y}', String(y));
+  }
+  /** Refresh routes without discarding loaded coverage, overview or viewport. */
+  replacePyramid(next: TilePyramid) {
+    if (next.tileSize !== this.pyramid.tileSize || next.gutter !== this.pyramid.gutter || next.levels.length !== this.pyramid.levels.length || next.levels.some((l, i) => ['level', 'width', 'height', 'columns', 'rows'].some(k => l[k as keyof PyramidLevel] !== this.pyramid.levels[i][k as keyof PyramidLevel]))) throw new TypeError('Raster refresh requires the same lattice');
+    for (const [key, controller] of this.active) {
+      const [level, x, y] = key.split('/').map(Number);
+      if (this.url(this.pyramid, level, x, y) !== this.url(next, level, x, y)) { controller.abort(); this.active.delete(key); }
+    }
+    this.pyramid = next;
+    for (const [key, tile] of this.cache) {
+      if (tile.sourceUrl !== this.url(next, tile.level, tile.x, tile.y)) { this.stale.add(key); this.failed.delete(key); }
+      else this.stale.delete(key);
+    }
+  }
   update(v: RasterView) {
     if (this.disposed) return;
     const density = Math.max(v.width * v.dpr, v.height * v.dpr);
@@ -79,7 +98,7 @@ export class PyramidRenderer {
     }
     this.queue = [...requests.values()].filter(r => {
       const failure = this.failed.get(r.key);
-      return !this.cache.has(r.key) && !this.active.has(r.key) && (!failure || failure.attempts < 3 && failure.retryAt <= this.now());
+      return (!this.cache.has(r.key) || this.stale.has(r.key)) && !this.active.has(r.key) && (!failure || failure.attempts < 3 && failure.retryAt <= this.now());
     }).sort((a, b) => a.priority - b.priority);
     this.evict(); this.pump(); this.scheduleRetry();
   }
@@ -98,14 +117,33 @@ export class PyramidRenderer {
       const r = this.queue.shift()!, controller = new AbortController(); this.active.set(r.key, controller);
       this.inflight.add(controller);
       const l = this.pyramid.levels[r.level];
-      const url = l.urlOverrides?.[`${r.x}/${r.y}`] ?? l.urlTemplate.replaceAll('{z}', String(r.level)).replaceAll('{x}', String(r.x)).replaceAll('{y}', String(r.y));
-      void this.loader(url, controller.signal).then(image => {
+      const expand = (url: string) => url.replaceAll('{z}', String(r.level)).replaceAll('{x}', String(r.x)).replaceAll('{y}', String(r.y));
+      const baseline = l.urlOverrides?.[`${r.x}/${r.y}`] ?? expand(l.urlTemplate);
+      const preferred = preferredTileAvailable(l, r.x, r.y);
+      let sourceUrl = preferred ? expand(l.preferred!.urlTemplate) : baseline;
+      let preferredFailed = false;
+      const request = this.loader(sourceUrl, controller.signal).catch(error => {
+        if (!preferred || controller.signal.aborted || !baselineTileAvailable(l, r.x, r.y)) throw error;
+        preferredFailed = true;
+        sourceUrl = baseline;
+        if (this.cache.get(r.key)?.sourceUrl === baseline) return undefined;
+        return this.loader(baseline, controller.signal);
+      });
+      void request.then(image => {
+        const retryPreferred = () => {
+          const attempts = (this.failed.get(r.key)?.attempts ?? 0) + 1;
+          this.stale.add(r.key); this.failed.set(r.key, { attempts, retryAt: this.now() + 500 * 2 ** (attempts - 1) }); this.scheduleRetry();
+        };
+        if (!image) { if (!this.disposed && !controller.signal.aborted) retryPreferred(); return; }
         if (this.disposed || controller.signal.aborted) { image.dispose(); return; }
         const width = Math.min(this.pyramid.tileSize, l.width - r.x * this.pyramid.tileSize), height = Math.min(this.pyramid.tileSize, l.height - r.y * this.pyramid.tileSize);
         const gutter = this.pyramid.gutter ?? 0;
         if (image.width !== width + gutter * 2 || image.height !== height + gutter * 2) { image.dispose(); throw new Error('Tile dimensions do not match pyramid'); }
-        this.cache.set(r.key, { ...r, image, ready: this.now(), used: ++this.clock, bytes: image.width * image.height * 4 });
-        this.failed.delete(r.key);
+        const previous = this.cache.get(r.key);
+        previous?.previous?.dispose();
+        this.cache.set(r.key, { ...r, image, sourceUrl, ...(previous ? { previous: previous.image } : {}), ready: this.now(), used: ++this.clock, bytes: image.width * image.height * 4 + (previous ? previous.image.width * previous.image.height * 4 : 0) });
+        if (preferredFailed) retryPreferred();
+        else { this.stale.delete(r.key); this.failed.delete(r.key); }
         this.evict(); this.redraw();
       }).catch(() => {
         if (!this.disposed && !controller.signal.aborted) {
@@ -151,9 +189,11 @@ export class PyramidRenderer {
         const parent = this.cache.get(this.key(this.level, Math.floor(tile.x / 2 ** (tile.level - this.level)), Math.floor(tile.y / 2 ** (tile.level - this.level))));
         if (parent) { const transition = Math.min(1, Math.max(0, (now - parent.ready) / 180)); alpha *= 1 - transition; fading ||= transition < 1; }
       }
-      if (alpha <= 0) continue;
+      if (alpha <= 0 && !tile.previous) continue;
+      if (tile.previous && alpha >= 1) { tile.bytes -= tile.previous.width * tile.previous.height * 4; tile.previous.dispose(); tile.previous = undefined; }
       ctx.save(); ctx.globalAlpha = alpha;
       if (partial) { ctx.beginPath(); for (const region of regions) ctx.rect(...region); ctx.clip(); }
+      if (tile.previous) { ctx.globalAlpha = 1; ctx.drawImage(tile.previous.image, gutter, gutter, logicalWidth, logicalHeight, x, y, width, height); ctx.globalAlpha = alpha; }
       ctx.drawImage(tile.image.image, gutter, gutter, logicalWidth, logicalHeight, x, y, width, height); ctx.restore();
     }
     if (fading && !this.frame) this.frame = requestAnimationFrame(() => { this.frame = 0; if (!this.disposed) this.redraw(); });
@@ -163,7 +203,7 @@ export class PyramidRenderer {
     for (const tile of [...this.cache.values()].sort((a, b) => a.used - b.used)) {
       if (bytes <= this.budget) break;
       if (this.protected.has(tile.key)) continue;
-      this.cache.delete(tile.key); bytes -= tile.bytes; tile.image.dispose();
+      this.cache.delete(tile.key); this.stale.delete(tile.key); bytes -= tile.bytes; tile.image.dispose(); tile.previous?.dispose();
     }
     if (this.hardBudget && bytes > this.budget) {
       // Retained fine zoom-out coverage is expendable before current wanted coverage.
@@ -171,7 +211,7 @@ export class PyramidRenderer {
       const candidates = [...this.cache.values()].sort((a, b) => Number(this.visible.has(a.key)) - Number(this.visible.has(b.key)) || b.level - a.level || a.used - b.used);
       for (const tile of candidates) {
         if (bytes <= this.budget) break;
-        this.cache.delete(tile.key); bytes -= tile.bytes; tile.image.dispose();
+        this.cache.delete(tile.key); this.stale.delete(tile.key); bytes -= tile.bytes; tile.image.dispose(); tile.previous?.dispose();
       }
     }
   }
@@ -180,7 +220,7 @@ export class PyramidRenderer {
     if (this.frame) cancelAnimationFrame(this.frame);
     if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
     for (const controller of this.active.values()) controller.abort();
-    for (const tile of this.cache.values()) tile.image.dispose();
+    for (const tile of this.cache.values()) { tile.image.dispose(); tile.previous?.dispose(); }
     this.cache.clear(); this.active.clear(); this.queue = []; this.failed.clear(); this.wanted.clear(); this.visible.clear(); this.protected.clear();
   }
 }

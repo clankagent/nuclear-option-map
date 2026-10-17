@@ -7,6 +7,7 @@ export function candidateAssetPath(raw: string): string | undefined {
   // Reject encoded separators/traversal instead of normalizing them.
   if (path.includes('%') || path.includes('\\')) return;
   if (/^\/(heartland|ignus)\/(pyramid\.json|overview\.png)$/.test(path) ||
+      /^\/incremental\/(coverage\.json|(?:heartland|ignus)\/10\/[0-9]+\/[0-9]+\.webp)$/.test(path) ||
       /^\/(heartland|ignus)\/[0-9]\/[0-9]+\/[0-9]+\.webp$/.test(path) ||
       /^\/candidate-source\/datasets\/(heartland|ignus)\/10\/[0-9]+\/[0-9]+\.webp$/.test(path)) return path;
 }

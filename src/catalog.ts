@@ -1,12 +1,18 @@
 import type { TopographyPyramid } from './topo-style';
 /** Tile coordinates, with exclusive right/bottom edges. Rectangles may overlap. */
 export interface TileCoverage { x: number; y: number; columns: number; rows: number }
-export interface PyramidLevel { level: number; width: number; height: number; columns: number; rows: number; urlTemplate: string; coverage?: TileCoverage[]; /** Exact x/y URLs for changed tiles; other coordinates use urlTemplate. */ urlOverrides?: Record<string, string> }
+export interface PyramidLevel { level: number; width: number; height: number; columns: number; rows: number; urlTemplate: string; coverage?: TileCoverage[]; /** Exact x/y URLs for changed tiles; other coordinates use urlTemplate. */ urlOverrides?: Record<string, string>; /** Verified replacements take priority over baseline overrides. */ preferred?: { urlTemplate: string; coverage: TileCoverage[] } }
 export interface TilePyramid { tileSize: number; gutter?: number; levels: PyramidLevel[] }
 /** Missing coverage means a complete level; an empty array means no tiles. */
 export function tileAvailable(level: PyramidLevel, x: number, y: number): boolean {
   return x >= 0 && y >= 0 && x < level.columns && y < level.rows &&
-    (level.coverage === undefined || level.coverage.some(r => x >= r.x && y >= r.y && x < r.x + r.columns && y < r.y + r.rows));
+    (baselineTileAvailable(level, x, y) || preferredTileAvailable(level, x, y));
+}
+export function baselineTileAvailable(level: PyramidLevel, x: number, y: number): boolean {
+  return x >= 0 && y >= 0 && x < level.columns && y < level.rows && (level.coverage === undefined || level.coverage.some(r => x >= r.x && y >= r.y && x < r.x + r.columns && y < r.y + r.rows));
+}
+export function preferredTileAvailable(level: PyramidLevel, x: number, y: number): boolean {
+  return !!level.preferred?.coverage.some(r => x >= r.x && y >= r.y && x < r.x + r.columns && y < r.y + r.rows);
 }
 export type ContourInterval = 10 | 20 | 50 | 100;
 export interface ContourPyramid { intervals: ContourInterval[]; levels: { level: number; columns: number; rows: number; urlTemplate: string }[] }
@@ -75,6 +81,11 @@ export function validateMap(value: unknown): MapDefinition {
           if (!r || ![r.x, r.y, r.columns, r.rows].every(Number.isSafeInteger) || r.x < 0 || r.y < 0 || r.columns < 1 || r.rows < 1 || r.x + r.columns > l.columns || r.y + r.rows > l.rows) throw new TypeError('Invalid pyramid coverage rectangle');
         }
       }
+      if (l.preferred !== undefined) {
+        const preferred = l.preferred;
+        if (!preferred || typeof preferred.urlTemplate !== 'string' || !preferred.urlTemplate.includes('{x}') || !preferred.urlTemplate.includes('{y}') || !Array.isArray(preferred.coverage) || preferred.coverage.length > 4096) throw new TypeError('Invalid preferred tile coverage');
+        for (const r of preferred.coverage) if (!r || ![r.x, r.y, r.columns, r.rows].every(Number.isSafeInteger) || r.x < 0 || r.y < 0 || r.columns < 1 || r.rows < 1 || r.x + r.columns > l.columns || r.y + r.rows > l.rows) throw new TypeError('Invalid preferred tile coverage rectangle');
+      }
       let urlOverrides: Record<string, string> | undefined;
       if (l.urlOverrides !== undefined) {
         if (!l.urlOverrides || typeof l.urlOverrides !== 'object' || Array.isArray(l.urlOverrides) || ![Object.prototype, null].includes(Object.getPrototypeOf(l.urlOverrides))) throw new TypeError('Invalid tile URL overrides');
@@ -89,7 +100,7 @@ export function validateMap(value: unknown): MapDefinition {
         }
         urlOverrides = Object.fromEntries(entries);
       }
-      return { ...l, ...(l.coverage !== undefined ? { coverage: l.coverage.map(r => ({ ...r })) } : {}), ...(urlOverrides ? { urlOverrides } : {}) };
+      return { ...l, ...(l.coverage !== undefined ? { coverage: l.coverage.map(r => ({ ...r })) } : {}), ...(urlOverrides ? { urlOverrides } : {}), ...(l.preferred ? { preferred: { ...l.preferred, coverage: l.preferred.coverage.map(r => ({ ...r })) } } : {}) };
     });
     tiles = { tileSize: p.tileSize, gutter: p.gutter ?? 0, levels };
   }
@@ -117,6 +128,11 @@ export function validateMap(value: unknown): MapDefinition {
   return { ...m, grid: { ...m.grid }, ...(tiles ? { tiles } : {}), ...(contours ? { contours } : {}), ...(topography ? { topography } : {}) };
 }
 function resolveTileOverrides(level: PyramidLevel, baseUrl: string) {
+  if (level.preferred) {
+    const url = new URL(level.preferred.urlTemplate, baseUrl);
+    if (!['http:', 'https:', 'file:'].includes(url.protocol)) throw new TypeError('Unsupported preferred tile URL');
+    level.preferred.urlTemplate = url.href.replace(/%7B/gi, '{').replace(/%7D/gi, '}');
+  }
   if (!level.urlOverrides) return;
   for (const [key, value] of Object.entries(level.urlOverrides)) {
     const url = new URL(value, baseUrl);
