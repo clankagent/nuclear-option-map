@@ -110,6 +110,8 @@ The output `tiles.json` supplies `image`, `tiles` and `contours` for a map defin
 
 ### Terrain material preparation
 
+Static overhead light cards retain their original camera-facing surfaces and corner colors. The importer and physical cropper select front faces only when source reconstruction metadata identifies the light material and exact opposite triangles share positions, UV layers and RGBA. Nearby surfaces are not welded, and a material name alone does not select geometry. Other faces, material assignments and retained attributes remain unchanged. This selection is specific to the fixed downward map camera; keep the original source for other views.
+
 Optional ground tint and northwest relief use a separate lossless height pyramid:
 
 ```powershell

@@ -20,6 +20,7 @@ from terrain_texture_variant import resolve_texture_variant
 from render_safety import guarded_render
 from source_vertex_colors import load_color_binding, attach_color_uvs
 from mesh_light_material import static_blinking_profile, build_static_blinking_light
+from source_light_mesh import canonicalize_object as canonicalize_light_object, material_ids as light_material_ids
 
 
 CONVERSION = Matrix(((1, 0, 0, 0), (0, 0, -1, 0), (0, 1, 0, 0), (0, 0, 0, 1)))
@@ -316,6 +317,11 @@ def build(scene_file, report_file, output, map_id, texture_variant=None):
         obj = bpy.data.objects.new(record["name"], mesh_cache[cache_key])
         obj_collection.objects.link(obj)
         obj.matrix_world = CONVERSION @ world_matrix(record["transform"], transform_records, matrix_cache)
+        # These static graphs use the fixed downward map camera. Select proved
+        # front faces after the complete instance transform is known.
+        targets = light_material_ids(mats)
+        if targets:
+            obj["sourceLightFaceCanonicalization"] = json.dumps(canonicalize_light_object(obj, targets))
         loaded += 1
         if re.search(r"airbase_city", record["name"], re.I):
             obj_bound = [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]

@@ -298,6 +298,11 @@ def main(argv):
     with render_slot():
         scene=bpy.context.scene
         configure_scene(scene,threads=2,samples=16,render_edge=args.edge)
+        from source_light_mesh import apply as canonicalize_lights, material_ids as light_material_ids
+        light_targets=light_material_ids(bpy.data.materials)
+        light_face_proof=canonicalize_lights(scene,light_targets) if light_targets else None
+        if light_face_proof is not None:
+            light_face_proof['stage']='beforePhysicalClip'
         original_stat=source.stat()
         with source.open('rb') as handle:
             source_hash=hashlib.file_digest(handle,'sha256').hexdigest()
@@ -575,6 +580,8 @@ def main(argv):
         evidence['passes']=[{'name':l.name,'enabled':[p.identifier for p in l.bl_rna.properties if p.identifier.startswith('use_pass_') and getattr(l,p.identifier)]} for l in scene.view_layers]
         if reductions:
             evidence['fidelityGaps'][1]='Explicit lossy texture-cap variant: minification, wrap filtering, alpha/normal and color fidelity require matched CPU comparison; not accepted imagery.'
+        if light_face_proof is not None:
+            evidence['sourceLightFaceCanonicalization']=light_face_proof
         (output/'manifest.json').write_text(json.dumps(evidence,indent=2),encoding='utf-8')
         if source.stat().st_size!=original_stat.st_size or source.stat().st_mtime_ns!=original_stat.st_mtime_ns:
             raise RuntimeError('Source changed during preprocessing')
