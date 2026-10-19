@@ -39,3 +39,7 @@ For the user's explicit denoised sample-count comparison, allow a global sequenc
 Input/work limits are enforceable. Stock Blender does not hard-cap driver/kernel memory or host scheduling; a watchdog or sampling timer is not a guaranteed GPU deadline. Report those distinctions honestly without blocking the authorized tiny experiment. Never probe allocation limits with an oversized scene/texture, run unguarded bpy.ops.render.render, or launch multiple GPU workers. GPU prototypes with reduced textures are not accepted imagery and must not replace the quality reference or live tiles.
 
 The demo should expose only Builtin, Topographic, and Satellite. Promote the latest complete dataset into the existing Satellite slot for each map; do not add preview choices unless requested. Keep required baseline URL dependencies when removing obsolete data.
+
+## Development reference
+
+Read [docs/development.md](docs/development.md) for architecture, build outputs, verification, and parallel-work boundaries. Read [docs/product-direction.md](docs/product-direction.md) before changing demo scope. Use disjoint file ownership, coordinate shared UI and manifest edits, and keep one integration/committing owner at a time. Work directly on the default branch and stage only the intended changes. Keep code, ignored assets, and rendering jobs separate.

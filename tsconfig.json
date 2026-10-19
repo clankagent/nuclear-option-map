@@ -9,5 +9,5 @@
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "demo", "vite.config.ts"]
+  "include": ["src", "demo", "tests/browser", "tests/smoke", "playwright.config.ts", "vite.config.ts", "vite.lib.config.ts"]
 }

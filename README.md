@@ -8,26 +8,36 @@ The built-in viewer supports Heartland and Ignus Archipelago when extracted from
 
 ## Build and run
 
-Requirements: Rust with the `wasm32-unknown-unknown` target, the matching `wasm-bindgen-cli` 0.2.129, Node.js, pnpm and uv. Vite Plus is the project web toolchain. PowerShell build scripts are included; equivalent Cargo/wasm-bindgen commands work on other platforms.
+Requirements: Node.js, the pnpm version pinned in `package.json`, Rust with the `wasm32-unknown-unknown` target, and `wasm-bindgen-cli` 0.2.129. Vite Plus runs through the project scripts. Python extraction tools also need uv.
 
-```powershell
+These commands work in PowerShell and WSL/Bash:
+
+```sh
 git clone https://github.com/clankagent/nuclear-option-map.git
 cd nuclear-option-map
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.129 --locked
 pnpm install --frozen-lockfile
-uv sync --locked
-./scripts/build-wasm.ps1
-uv run python tools/extract_map.py "PATH/TO/NuclearOption_Data"
-./scripts/build-library.ps1
-pnpm exec vp dev
+pnpm run wasm
+pnpm run dev
 ```
 
-The demo runs on `http://127.0.0.1:47832`. `pnpm exec vp build` writes a local demo build. Extracted images and geometry are excluded from Git. See [extraction tools](tools/README.md) for optional geometry export.
+The demo runs on `http://127.0.0.1:47832`. To extract a compatible local client:
+
+```sh
+uv sync --locked
+uv run python tools/extract_map.py "PATH/TO/NuclearOption_Data"
+```
+
+Keep extracted images, geometry, and manifests in ignored local folders. They must never enter Git. See [extraction tools](tools/README.md) for processing details.
+
+`pnpm run build` writes code-only demo output to `dist/app`; it does not copy local map assets. `pnpm run package:demo` explicitly adds local demo assets to `dist/demo-package`. Packaging does not fetch remote assets. A manifest can still refer to external or proxied files, so a package does not establish offline completeness. Review its URL dependencies before distributing or using it offline.
+
+See [development](docs/development.md) for architecture, checks, and parallel-work boundaries, and [product direction](docs/product-direction.md) for the demo's current scope.
 
 ## Browser library
 
-`scripts/build-library.ps1` writes `dist/browser/index.js` and TypeScript declarations. The ES module embeds its WASM core, so it can be served as one JavaScript file. It also writes an independent WASM module and bindings to `dist/wasm/`; keep those files together. No npm publication is required.
+`pnpm run build:library` writes `dist/browser/index.js` and TypeScript declarations. The ES module embeds its WASM core, so it can be served as one JavaScript file. It also writes an independent WASM module and bindings to `dist/wasm/`; keep those files together. No npm publication is required.
 
 ```typescript
 import { createMapViewer, loadMapCatalog } from './dist/browser/index.js';
@@ -92,13 +102,15 @@ The [Rust core](crates/map-core/README.md) can be used by a native host without 
 
 ```powershell
 cargo test --locked --workspace
-pnpm exec vp run typecheck
-pnpm exec vp test run
+pnpm run typecheck
+pnpm run test
 uv run python -m unittest discover -s tests/extraction
 ```
 
+The browser smoke test uses synthetic maps and the real WASM core at desktop and phone sizes. It needs no game files. Install Chromium with `pnpm exec playwright install chromium`, then run `pnpm run test:smoke`. CI checks the code build and browser integration without local assets; it does not establish extracted-map appearance.
+
 Terrain extraction exports map-prefab mesh instances and their resolved placement hierarchy. The Blender importer compensates for OBJ handedness and converts the world to Blender axes. Offline tools produce terrain scenes, GLB models and elevation arrays, while the cartographic pipeline projects ground, roads and building footprints into raster tiles and extracts contour vectors from the ground triangles. Missing elevations stay explicitly unknown; roofs do not generate terrain contours.
 
-The demo discovers locally generated views from `/maps/variants.json`. Satellite rendering requires recovered scenery and material assignments; the game's coarse terrain-color texture alone does not provide that view. See [extraction tools](tools/README.md) for local processing and optional smaller GLB previews. Mission loading and an interactive 3D viewer are planned extensions.
+The demo discovers locally generated views from `/maps/variants.json`. Satellite rendering requires recovered scenery and material assignments; the game's coarse terrain-color texture alone does not provide that view. See [extraction tools](tools/README.md) for local processing and optional smaller GLB previews. Future use cases need definition before the demo gains more workflows.
 
 Own code is MIT licensed. Nuclear Option game assets are not included or covered by that license.

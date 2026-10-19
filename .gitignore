@@ -9,3 +9,6 @@ demo/public/maps/
 *.log
 __pycache__/
 .venv/
+.ruff_cache/
+playwright-report/
+test-results/

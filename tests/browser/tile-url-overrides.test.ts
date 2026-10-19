@@ -47,13 +47,13 @@ describe('changed tile URL overrides', () => {
   it('requests exact changed URLs alongside baseline tiles, caches coordinates and isolates a new candidate', async () => {
     const source = map(); source.tiles = { tileSize: 512, levels: [{ level: 0, width: 1024, height: 512, columns: 2, rows: 1, urlTemplate: 'baseline/{z}/{x}/{y}.webp', urlOverrides: { '0/0': 'changed-v1/0.webp' } }] };
     const image = (): TileImage => ({ image: {} as CanvasImageSource, width: 512, height: 512, dispose: vi.fn() });
-    const load = vi.fn(async () => image()), renderer = new PyramidRenderer(catalog(source).tiles!, load, vi.fn());
+    const load = vi.fn(async (_url: string) => image()), renderer = new PyramidRenderer(catalog(source).tiles!, load, vi.fn());
     const view: RasterView = { x: 0, y: 0, width: 1024, height: 512, screenWidth: 1024, screenHeight: 512, dpr: 1 };
     renderer.update(view); await flush();
     expect(load.mock.calls.map(call => call[0])).toEqual(['https://example.org/maps/changed-v1/0.webp', 'https://example.org/maps/baseline/0/1/0.webp']);
     renderer.update(view); await flush(); expect(load).toHaveBeenCalledTimes(2); renderer.destroy();
     source.tiles.levels[0].urlOverrides = { '0/0': 'changed-v2/0.webp' };
-    const nextLoad = vi.fn(async () => image()), next = new PyramidRenderer(catalog(source).tiles!, nextLoad, vi.fn());
+    const nextLoad = vi.fn(async (_url: string) => image()), next = new PyramidRenderer(catalog(source).tiles!, nextLoad, vi.fn());
     next.update(view); await flush();
     expect(nextLoad.mock.calls.map(call => call[0])).toContain('https://example.org/maps/changed-v2/0.webp');
     next.destroy();

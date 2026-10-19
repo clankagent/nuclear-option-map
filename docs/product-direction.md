@@ -1,0 +1,13 @@
+# Demo product direction
+
+The current demo is a clean, Satellite-first map browser. Start in Satellite when the selected map has that dataset. Keep Builtin and Topographic available as distinct views.
+
+Preserve the footer controls, map scale, and overview map. These support map navigation and orientation. Keep desktop and phone layouts usable with the same core map controls.
+
+Remove measurement and pin-placement UI and their map overlays. Do not rebuild their unused state or styling as a foundation for unspecified features.
+
+Places and mission-loading behavior are outside this redesign. Do not change those workflows as part of visual cleanup. Do not infer a new mission workflow, live data feed, or feature backlog from the map browser.
+
+Define future use cases before expanding the UI. New workflows need a clear user task, required data, and acceptance criteria. Keep the reusable browser library independent of demo-specific controls.
+
+Satellite imagery comes from precomputed map assets. Rendering and asset preparation remain offline work. Code builds and synthetic browser checks do not establish imagery quality; real-map visual review remains separate.
