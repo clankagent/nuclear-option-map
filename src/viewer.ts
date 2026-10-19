@@ -229,6 +229,17 @@ export class MapViewer {
     this.map = { ...this.map, tiles: validated }; this.changed();
   }
   zoomOut() { this.zoomBy(1 / 1.5); }
+  /** Set world-meter center and/or zoom relative to fit in one view change. */
+  setView(view: { centerX?: number; centerZ?: number; zoom?: number }): void {
+    this.assertAlive();
+    for (const value of [view.centerX, view.centerZ, view.zoom]) {
+      if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value))) throw new TypeError('View values must be finite numbers');
+    }
+    if (view.zoom !== undefined) this.viewport.zoomAt(Math.max(0.25, Math.min(this.maxZoom, view.zoom)) / this.viewport.zoom(), this.width / 2, this.height / 2);
+    const centerX = this.viewport.centerX(), centerZ = this.viewport.centerZ(), scale = this.viewport.scale();
+    this.viewport.pan((centerX - (view.centerX ?? centerX)) * scale, ((view.centerZ ?? centerZ) - centerZ) * scale);
+    this.changed();
+  }
   setMaxZoom(max: number) { this.assertAlive(); if (typeof max !== 'number') throw new TypeError('Maximum zoom must be a number'); this.viewport.setMaxZoom(max); this.maxZoom = max; this.changed(); }
   private zoomBy(factor: number) { this.assertAlive(); this.viewport.zoomAt(factor, this.width / 2, this.height / 2); this.changed(); }
   fit() { this.assertAlive(); this.viewport.fit(); this.changed(); }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-const core = vi.hoisted(() => ({ init: vi.fn(async () => undefined), free: vi.fn(), setMaxZoom: vi.fn(), scale: 1 }));
+const core = vi.hoisted(() => ({ init: vi.fn(async () => undefined), free: vi.fn(), setMaxZoom: vi.fn(), zoomAt: vi.fn(), pan: vi.fn(), scale: 1, zoom: 1, centerX: 0, centerZ: 0 }));
 const contour = vi.hoisted(() => ({ fail: false, waitInterval: null as number | null, resolvers: [] as (() => void)[] }));
 vi.mock('../../src/contours', () => ({ ContourRenderer: class {
   private reject?: (error: Error) => void;
@@ -8,9 +8,9 @@ vi.mock('../../src/contours', () => ({ ContourRenderer: class {
   draw() {} destroy() { this.reject?.(new Error('contour request canceled')); }
 } }));
 vi.mock('../../pkg/nuclear_option_map.js', () => ({ default: core.init, MapViewport: class {
-  resize() {} free() { core.free(); } zoom() { return 1; } scale() { return core.scale; } zoomAt(factor: number) { core.scale *= factor; } centerX() { return 0; } centerZ() { return 0; }
+  resize() {} free() { core.free(); } zoom() { return core.zoom; } scale() { return core.scale; } zoomAt(factor: number) { core.zoomAt(factor); core.zoom *= factor; core.scale *= factor; } centerX() { return core.centerX; } centerZ() { return core.centerZ; }
   setMaxZoom(max: number) { core.setMaxZoom(max); }
-  pan() {}
+  pan(dx: number, dy: number) { core.pan(dx, dy); core.centerX -= dx / core.scale; core.centerZ += dy / core.scale; }
   worldToScreen(x: number, z: number) { return [x, -z]; } screenToWorld(x: number, y: number) { return [x, -y]; }
 } }));
 import { MapViewer, chooseContourInterval, adaptiveContourInterval, createMapViewer } from '../../src/viewer';
@@ -47,8 +47,26 @@ function surfaces(failObserve = false) {
   const flushFrame = () => { const pending = [...frames.values()]; frames.clear(); pending.forEach(callback => callback(0)); };
   return { canvas, listeners, windowListeners, disconnect, frames, ctx, flushFrame };
 }
-afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); contour.fail = false; contour.waitInterval = null; contour.resolvers = []; core.scale = 1; });
+afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); contour.fail = false; contour.waitInterval = null; contour.resolvers = []; core.scale = 1; core.zoom = 1; core.centerX = 0; core.centerZ = 0; });
 describe('viewer construction lifecycle', () => {
+  it('sets a clamped view with one notification and rejects invalid values before mutation', async () => {
+    const surface = surfaces(), changed = vi.fn();
+    const viewer = await createMapViewer(surface.canvas, { onViewChange: changed, maxZoom: 400 });
+    core.centerX = 10; core.centerZ = 20; core.zoomAt.mockClear(); core.pan.mockClear(); changed.mockClear();
+    viewer.setView({ centerX: 100, centerZ: -50, zoom: 900 });
+    expect(core.zoomAt).toHaveBeenCalledOnce();
+    expect(core.zoomAt).toHaveBeenCalledWith(400);
+    expect(core.pan).toHaveBeenCalledWith(-36000, -28000);
+    expect(viewer.state).toMatchObject({ centerX: 100, centerZ: -50, zoom: 400 });
+    expect(changed).toHaveBeenCalledOnce();
+    viewer.setView({ centerZ: 30, zoom: 0 });
+    expect(viewer.state).toMatchObject({ centerX: 100, centerZ: 30, zoom: .25 });
+    core.zoomAt.mockClear(); core.pan.mockClear(); changed.mockClear();
+    expect(() => viewer.setView({ centerX: Infinity, zoom: 2 })).toThrow('finite');
+    expect(core.zoomAt).not.toHaveBeenCalled(); expect(core.pan).not.toHaveBeenCalled(); expect(changed).not.toHaveBeenCalled();
+    viewer.destroy();
+    expect(() => viewer.setView({ zoom: 2 })).toThrow('destroyed');
+  });
   it('passes zoom limits to the core and retains only successful changes across map replacement', async () => {
     const surface = surfaces();
     vi.stubGlobal('Image', class { naturalWidth = 10; naturalHeight = 10; onload?: () => void; set src(_value: string) { queueMicrotask(() => this.onload?.()); } });
