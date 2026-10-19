@@ -8,6 +8,7 @@ export class DemoApp {
   constructor() {
     this.app.session.onChange = () => this.app.view.syncSession();
     this.app.session.onViewChange = (state) => {
+      this.app.rulers.viewChanged();
       this.app.minimap.update(
         this.app.session.current,
         this.app.session.activeVariant?.image ?? this.app.session.current?.image ?? null,
@@ -32,6 +33,7 @@ export class DemoApp {
   async start() {
     const app = this.app;
     app.chrome.fillIcons();
+    app.rulers.bind();
     app.pointer.bind();
     app.drawerController.bind();
     app.chrome.bind();

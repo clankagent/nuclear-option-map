@@ -118,3 +118,108 @@ test("missing map data has an explicit empty state", async ({ page }) => {
   await expect(page.locator("#load-title")).toHaveText("No local map installed");
   await expect(page.locator("#load-detail")).toContainText("lists no maps");
 });
+
+test("temporary rulers use the footer scale and clear on exit", async ({ page }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await assets(page);
+  await page.goto("/");
+  const toggle = page.getByRole("button", { name: "Temporary measurement", exact: true });
+  await expect(toggle).toBeEnabled();
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  const canvas = page.locator("#map-canvas"),
+    rulers = page.locator(".temporary-ruler");
+  const box = (await canvas.boundingBox())!;
+  const x = box.x + box.width * 0.3,
+    y = box.y + box.height * 0.45;
+  const drag = async (dx: number, dy: number) => {
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + dx, y + dy, { steps: 5 });
+    await page.mouse.up();
+  };
+  await drag(120, 0);
+  await expect(rulers).toHaveCount(1);
+  await expect(page).toHaveURL(/cx=0&cz=0/);
+  const label = await rulers.first().locator("text").textContent();
+  const expectedKm = 120 / (Math.min(box.width, box.height) / 20000) / 1000;
+  expect(label).toBe(`${expectedKm.toFixed(1)} km`);
+  expect(Number(await rulers.first().locator("rect").getAttribute("width"))).toBeCloseTo(120);
+  const footerWidth = await page
+    .locator("#scale-line")
+    .evaluate((e) => e.getBoundingClientRect().width);
+  expect(Number(await page.locator("#ruler-stripes").getAttribute("width"))).toBeCloseTo(
+    footerWidth / 2,
+  );
+  await drag(-40, 60);
+  await expect(rulers).toHaveCount(2);
+  await page.screenshot({ path: testInfo.outputPath("temporary-rulers.png") });
+  await canvas.click({ button: "right" });
+  await expect(rulers).toHaveCount(1);
+  await expect(page.locator("#context-menu")).toBeHidden();
+  await canvas.press("+");
+  await expect
+    .poll(async () => Number(await rulers.first().locator("rect").getAttribute("width")))
+    .toBeGreaterThan(120);
+  await expect(rulers.first().locator("text")).toHaveText(label!);
+  await page.keyboard.press("Escape");
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(rulers).toHaveCount(0);
+  await expect(page.locator("#ruler-hint")).toBeHidden();
+  await toggle.click();
+  await drag(70, 30);
+  await expect(rulers).toHaveCount(1);
+  await toggle.click();
+  await expect(rulers).toHaveCount(0);
+  await toggle.click();
+  await expect(rulers).toHaveCount(0);
+  await drag(50, 20);
+  await page.locator("#map-switcher").click();
+  await page.getByRole("option", { name: "Fixture two" }).click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(rulers).toHaveCount(0);
+  await drag(40, 10);
+  await expect
+    .poll(() => Number(new URLSearchParams(new URL(page.url()).hash.slice(1)).get("cx") ?? 0))
+    .not.toBe(0);
+  await expect(rulers).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("unfinished drags and touch gestures stay temporary", async ({ page, isMobile }) => {
+  await assets(page);
+  await page.goto("/");
+  const toggle = page.getByRole("button", { name: "Temporary measurement", exact: true });
+  await expect(toggle).toBeEnabled();
+  await toggle.click();
+  const box = (await page.locator("#map-canvas").boundingBox())!;
+  const x = box.x + box.width * 0.4,
+    y = box.y + box.height * 0.5;
+  const rulers = page.locator(".temporary-ruler");
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 2, y);
+  await page.mouse.up();
+  await expect(rulers).toHaveCount(0);
+  await page.mouse.down();
+  await page.mouse.move(x + 70, y + 40, { steps: 4 });
+  await expect(rulers).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  await toggle.click();
+  await expect(rulers).toHaveCount(0);
+  if (isMobile) {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [{ x: x + 70, y: y + 40 }],
+    });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect(rulers).toHaveCount(1);
+  }
+  await page.reload();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(rulers).toHaveCount(0);
+});

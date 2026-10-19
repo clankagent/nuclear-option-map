@@ -86,6 +86,10 @@
           tabindex="0"
           aria-label="Map view. Arrow keys pan; plus and minus zoom; zero fits the map."
         ></canvas>
+        <svg id="temporary-rulers" class="temporary-rulers" aria-hidden="true" hidden></svg>
+        <div id="ruler-hint" class="ruler-hint" role="status" hidden>
+          Drag to measure · Right-click to undo · Esc to clear and exit
+        </div>
 
         <section id="minimap" class="inset" aria-label="Overview map">
           <div class="minimap-heading">
@@ -164,9 +168,10 @@
             title="Copy view link"
           ></button>
         </div>
-        <div id="scale-bar" class="scale-bar">
+        <button id="scale-bar" class="scale-bar" type="button" aria-label="Temporary measurement"
+          aria-pressed="false" title="Measure temporarily: click, then drag on the map" disabled>
           <span id="scale-line"></span><span id="scale-label">—</span>
-        </div>
+        </button>
         <div id="water-preview" class="water-preview" hidden>
           <span id="water-preview-status"></span
           ><a href="/status/#coverage-sec">Coverage and gaps</a>

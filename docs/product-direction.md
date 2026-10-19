@@ -4,7 +4,7 @@ The current demo is a clean, Satellite-first map browser. Start in Satellite whe
 
 Preserve the footer controls, map scale, and overview map. These support map navigation and orientation. Keep desktop and phone layouts usable with the same core map controls.
 
-Remove measurement and pin-placement UI and their map overlays. Do not rebuild their unused state or styling as a foundation for unspecified features.
+Keep the retired toolbar measurement and pin-placement workflows removed. Temporary measurement uses the footer scale itself: click to enable, drag independent rulers, right-click to remove the latest, and press Escape or click the scale again to clear and exit. Rulers match the footer scale marks and stay anchored to map coordinates while navigating. Nothing is saved or shared; changing maps clears the measurements.
 
 Places and mission-loading behavior are outside this redesign. Do not change those workflows as part of visual cleanup. Do not infer a new mission workflow, live data feed, or feature backlog from the map browser.
 

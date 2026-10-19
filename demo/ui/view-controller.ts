@@ -6,6 +6,7 @@ import { formatCoordinate, formatDistance } from "./geo";
 export class ViewController {
   constructor(private app: AppContext) {}
   syncSession() {
+    this.app.rulers.syncMap();
     if (this.app.session.current && this.app.pinsController.mapId !== this.app.session.current.id) {
       this.app.pinsController.loadCurrentPins();
     }

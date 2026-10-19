@@ -20,6 +20,7 @@ import { PointerController } from "./pointer-controller";
 import { ContextController } from "./context-controller";
 import { KeyboardController } from "./keyboard-controller";
 import { ChromeController } from "./chrome-controller";
+import { TemporaryRulers } from "./temporary-rulers";
 
 /** Shared session state and controller wiring. Each controller owns its transient UI state. */
 export class AppContext {
@@ -53,6 +54,7 @@ export class AppContext {
   readonly permalink = new PermalinkController(this);
   readonly clipboard = new ClipboardController(this);
   readonly pointer = new PointerController(this);
+  readonly rulers = new TemporaryRulers(this);
   readonly context = new ContextController(this);
   readonly keyboard = new KeyboardController(this);
   readonly chrome = new ChromeController(this);

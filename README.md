@@ -73,7 +73,9 @@ Use `viewer.setMap(otherImage, {preserveView: true})` to compare images with ide
 
 Choose a map from the upper-left menu and a view from the header tabs or Layers panel. Maps start in Satellite when that dataset is available; shared links restore their selected view. Drag to pan, use the wheel or pinch to zoom, double-click to zoom in, and use the footer controls to zoom or fit. The jump field accepts grid references such as `E4` and meter coordinates such as `12000,-4500`. The readout copies the current coordinates when selected. The overview map moves the main view when clicked or dragged.
 
-Places retains saved locations and JSON import/export. Select a location to move the map to it. Right-click, long-press, or press Shift+F10 to copy coordinates, copy the grid reference, center the map, or zoom in. Measurement and pin-placement tools and their map overlays are removed.
+Click the footer scale to enable temporary measurement. Click and drag on the map to draw a ruler, then drag again to add another. Ruler marks use the same spacing as the footer scale. Right-click removes the latest ruler. Escape or another click on the scale clears the rulers and exits. Rulers follow the map during zoom and keyboard navigation, but are never saved or included in links. Changing maps clears them.
+
+Places retains saved locations and JSON import/export. Select a location to move the map to it. Outside measurement mode, right-click, long-press, or press Shift+F10 to copy coordinates, copy the grid reference, center the map, or zoom in. Pin-placement and the former toolbar measurement workflow remain removed.
 
 Copy view link shares the map, view, center, and zoom. Links to views above 400× enable extended zoom. The address updates as you move, so reloading restores the current view. Search clears after a jump; Escape clears its text first, then closes it. On phones, panels open above the toolbar. Tap outside a panel or drag its handle down to close it.
 
