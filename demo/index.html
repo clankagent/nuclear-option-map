@@ -1,132 +1,211 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="color-scheme" content="dark">
-  <title>Nuclear Option Map</title>
-  <link rel="stylesheet" href="./style.css">
-</head>
-<body>
-  <div class="app">
-    <header class="bar">
-      <h1>Nuclear Option Map</h1>
-      <div class="controls" role="toolbar" aria-label="Map controls">
-        <label class="field">
-          <span>Map</span>
-          <select id="map-select" disabled>
-            <option value="">No map available</option>
-          </select>
-        </label>
-        <label class="field" id="variant-field" hidden>
-          <span>View</span>
-          <select id="variant-select" disabled></select>
-        </label>
-        <label class="field" id="mode-field">
-          <span>Image</span>
-          <select id="mode-select" disabled>
-            <option value="builtin">Builtin (tinted)</option>
-            <option value="raw">Raw sprite</option>
-          </select>
-        </label>
-        <div class="buttons">
-          <button type="button" id="zoom-in" aria-label="Zoom in" title="Zoom in (+)" disabled>+</button>
-          <button type="button" id="zoom-out" aria-label="Zoom out" title="Zoom out (-)" disabled>&minus;</button>
-          <button type="button" id="fit" title="Fit map (0)" disabled>Fit map</button>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>Nuclear Option Map</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="map-app" aria-label="Nuclear Option map">
+      <canvas
+        id="map-canvas"
+        tabindex="0"
+        aria-label="Map view. Arrow keys pan; plus and minus zoom; zero fits the map."
+      ></canvas
+      ><canvas id="map-overlay" aria-hidden="true"></canvas>
+      <header class="topbar">
+        <div class="switcher-wrap">
+          <button
+            id="map-switcher"
+            class="panel brand"
+            type="button"
+            aria-haspopup="listbox"
+            aria-expanded="false"
+            aria-controls="map-menu"
+          >
+            <span class="brand-title" aria-hidden="true">NO</span
+            ><span id="map-name">Choose map</span><span id="chevron-icon"></span>
+          </button>
+          <div id="map-menu" class="panel menu" role="listbox" aria-label="Maps" hidden></div>
+        </div>
+        <div class="jump-wrap">
+          <button
+            id="search-open"
+            class="icon-button mobile-search"
+            aria-label="Search map"
+            type="button"
+          ></button>
+          <div id="jump-panel" class="panel jump-panel">
+            <span id="search-icon"></span
+            ><input
+              id="jump-input"
+              type="search"
+              autocomplete="off"
+              spellcheck="false"
+              aria-label="Jump to grid, coordinates, or pin"
+              aria-controls="jump-results"
+              aria-expanded="false"
+              placeholder="Jump to grid, coordinates or pin…"
+            /><kbd>/</kbd>
+            <div id="jump-results" class="jump-results" role="listbox" hidden></div>
+          </div>
+        </div>
+        <div class="top-actions">
+          <a id="status-chip" class="panel status-chip" href="/status/" hidden
+            ><span class="status-dot"></span><span id="status-text">Status</span></a
+          ><button
+            id="settings-open"
+            class="panel icon-button"
+            type="button"
+            aria-label="Settings"
+            aria-expanded="false"
+          ></button>
+        </div>
+      </header>
+      <nav id="tools-rail" class="panel tools-rail" role="toolbar" aria-label="Map tools">
+        <button
+          type="button"
+          data-tool="navigate"
+          aria-label="Navigate"
+          aria-pressed="true"
+          title="Navigate (V)"
+        ></button
+        ><button
+          type="button"
+          data-tool="measure"
+          aria-label="Measure"
+          aria-pressed="false"
+          title="Measure (M)"
+        ></button
+        ><button
+          type="button"
+          data-tool="pin"
+          aria-label="Drop pin"
+          aria-pressed="false"
+          title="Drop pin (P)"
+        ></button
+        ><span class="rail-divider"></span
+        ><button
+          type="button"
+          id="places-open"
+          aria-label="Places"
+          aria-expanded="false"
+          title="Places (B)"
+        ></button
+        ><button
+          type="button"
+          id="layers-open"
+          aria-label="Layers"
+          aria-expanded="false"
+          title="Layers (L)"
+        ></button>
+      </nav>
+      <section id="minimap" class="panel minimap" aria-label="Overview map">
+        <div class="minimap-heading">
+          <span class="eyebrow">Overview</span
+          ><button
+            id="minimap-collapse"
+            class="mini-button"
+            type="button"
+            aria-label="Collapse overview"
+            aria-expanded="true"
+          >
+            −
+          </button>
+        </div>
+        <div
+          id="minimap-surface"
+          class="minimap-surface"
+          role="button"
+          tabindex="0"
+          aria-label="Move map view"
+        >
+          <div id="minimap-viewport"></div>
+        </div>
+      </section>
+      <div class="zoom-stack panel">
+        <button id="zoom-in" type="button" aria-label="Zoom in">+</button
+        ><button id="zoom-out" type="button" aria-label="Zoom out">−</button
+        ><button id="fit" type="button" aria-label="Fit map">⛶</button
+        ><span id="zoom-badge">—</span>
+      </div>
+      <div class="bottom-left">
+        <div id="scale-bar" class="scale-bar mono">
+          <span id="scale-line"></span><span id="scale-label">—</span>
+        </div>
+        <div id="view-cards" class="view-cards" role="group" aria-label="Map views"></div>
+      </div>
+      <div class="bottom-center">
+        <div id="water-preview" class="panel water-preview" hidden>
+          <span id="water-preview-status"></span
+          ><a href="/status/#coverage-sec">Coverage and gaps</a>
+        </div>
+        <div class="panel readout">
+          <button
+            id="readout-copy"
+            class="readout-text mono"
+            type="button"
+            aria-label="Copy coordinates"
+          >
+            <span id="readout">Grid — · x — · z — · 1 px = —</span></button
+          ><span id="interval-chip" class="interval-chip" hidden></span
+          ><button
+            id="copy-link"
+            class="icon-button"
+            type="button"
+            aria-label="Copy view link"
+            title="Copy view link"
+          ></button>
         </div>
       </div>
-      <div class="menus">
-        <a class="status-link" href="/status/">Status</a>
-        <details class="pop" id="settings">
-          <summary>Settings</summary>
-          <div class="pop-body settings-body">
-            <label class="check">
-              <input type="checkbox" id="grid-toggle" checked disabled>
-              <span>Grid</span>
-            </label>
-            <label class="field">
-              <span>Labels</span>
-              <select id="labels-select" disabled>
-                <option value="edges">Edges</option>
-                <option value="cells">Cells</option>
-                <option value="none">None</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Tint</span>
-              <input type="color" id="tint-input" value="#6f9d75" disabled>
-            </label>
-            <label class="field" id="contour-field" hidden>
-              <span>Contour interval</span>
-              <select id="contour-select" disabled>
-                <option value="auto" selected>Auto (zoom)</option>
-                <option value="10">10 m</option>
-                <option value="20">20 m</option>
-                <option value="50">50 m</option>
-                <option value="100">100 m</option>
-              </select>
-            </label>
-            <label class="field" id="smoothing-field" hidden>
-              <span>Line smoothing <output id="smoothing-value">40 m</output></span>
-              <input id="smoothing-input" type="range" min="0" max="80" step="4" value="40" aria-label="Contour line smoothing" disabled>
-            </label>
-            <label class="field" id="topo-field" hidden>
-              <span>Terrain fill</span>
-              <select id="topo-select" disabled>
-                <option value="plain">Plain</option>
-                <option value="lowlands-dark">Darker lowlands</option>
-                <option value="elevation-colors">Elevation colors</option>
-              </select>
-            </label>
-            <label class="check" id="relief-field" hidden>
-              <input type="checkbox" id="relief-toggle" disabled>
-              <span>Shaded relief</span>
-            </label>
-            <label class="field" id="strength-field" hidden>
-              <span>Strength <output id="strength-value">45%</output></span>
-              <input id="strength-input" type="range" min="0" max="100" step="5" value="45" aria-label="Topographic color and relief strength" disabled>
-            </label>
-          </div>
-        </details>
-        <details class="pop help" id="about">
-          <summary>About</summary>
-          <div class="pop-body help-body">
-            <p>Click the map, then use arrow keys to pan, <kbd>+</kbd>/<kbd>-</kbd> to zoom and <kbd>0</kbd> to fit. Drag to pan; wheel or pinch to zoom.</p>
-            <p>Builtin shows the map sprite with the tint applied. Raw shows the sprite source unmodified. Satellite and topographic views use their own colors.</p>
-            <p>Coordinates are meters from the map center: X east, Z north. Grid cells are 10 km wide.</p>
-            <p>Detailed views load pre-rendered tiles as you zoom. Topographic contours follow the extracted ground model. Auto shows finer elevation intervals when zoomed in; Settings also offers fixed intervals and line smoothing. Zero smoothing shows the unsmoothed contours. Elevations are meters above the game's sea level.</p>
-            <p>Topographic Settings offers darker lowlands, green-to-cream elevation colors, and relief lit from the northwest. Strength adjusts their subtlety beneath the contours. These styles use ground elevations; roads and buildings remain visible, and water stays blue.</p>
-          </div>
-        </details>
+      <div id="load-state" class="load-state" role="status" aria-live="polite">
+        <div class="load-card panel">
+          <span class="load-mark"></span><strong id="load-title">Starting map engine</strong
+          ><span id="load-detail">Initializing WASM…</span
+          ><button id="load-retry" type="button" hidden>Retry</button>
+        </div>
       </div>
-    </header>
-
-    <main class="stage">
-      <canvas id="map-canvas" tabindex="0" aria-label="Map view. Arrow keys pan, plus and minus zoom, zero fits the map."></canvas>
-      <div id="overlay" class="overlay" role="status" aria-live="polite" hidden>
-        <strong id="overlay-title"></strong>
-        <span id="overlay-text"></span>
+      <div id="error-banner" class="panel error-banner" role="alert" hidden>
+        <span id="error-message"></span><button id="error-retry" type="button">Retry</button
+        ><button id="error-close" type="button" aria-label="Close error">×</button>
       </div>
+      <div id="sheet-backdrop" class="sheet-backdrop" hidden></div>
+      <aside id="drawer" class="panel drawer" aria-label="Map panel" hidden>
+        <button
+          id="sheet-handle"
+          class="sheet-handle"
+          type="button"
+          aria-label="Dismiss panel"
+        ></button>
+        <div class="drawer-head">
+          <span id="drawer-title" class="eyebrow">Panel</span
+          ><button
+            id="drawer-close"
+            class="icon-button"
+            type="button"
+            aria-label="Close panel"
+          ></button>
+        </div>
+        <div id="drawer-body" class="drawer-body"></div>
+      </aside>
+      <div
+        id="context-menu"
+        class="panel context-menu"
+        role="menu"
+        aria-label="Map actions"
+        hidden
+      ></div>
+      <div id="toasts" class="toasts" aria-live="polite"></div>
+      <dialog id="shortcuts-dialog" aria-labelledby="shortcuts-title">
+        <div class="dialog-head">
+          <h2 id="shortcuts-title">Keyboard shortcuts</h2>
+          <button id="shortcuts-close" type="button" aria-label="Close shortcuts">×</button>
+        </div>
+        <div id="shortcuts-body"></div>
+      </dialog>
     </main>
-
-    <footer class="status">
-      <span id="engine">Starting…</span>
-      <span id="coords" aria-label="Pointer position">Grid — · x — · z —</span>
-      <span class="zoom-control">
-        <span id="zoom">Zoom —</span>
-        <button type="button" id="zoom-limit-toggle" class="zoom-limit-toggle" role="switch" aria-checked="false" aria-label="Extended zoom" aria-describedby="zoom-limit-help" disabled><span class="zoom-switch-track" aria-hidden="true"><span></span></span></button>
-      </span>
-      <span id="interval" hidden></span>
-      <span id="size">Map —</span>
-      <span id="water-preview-status" hidden></span>
-      <a id="water-preview-coverage" class="status-link" href="/status/#coverage-sec" hidden>Coverage and gaps</a>
-    </footer>
-  </div>
-  <div id="zoom-limit-help" class="zoom-limit-help" popover="manual" role="tooltip">
-    <strong>Extended zoom</strong>
-    <span id="zoom-limit-state">Off · Maximum 400×</span>
-    <p>Turn on to zoom up to 1,024×. Higher zoom enlarges the existing imagery.</p>
-  </div>
-  <script type="module" src="./main.ts"></script>
-</body>
+    <script type="module" src="./main.ts"></script>
+  </body>
 </html>

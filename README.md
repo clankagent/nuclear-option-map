@@ -55,9 +55,19 @@ Use `viewer.setView({ centerX: 12000, centerZ: -4500, zoom: 12.5 })` to set the 
 
 Set `maxZoom` in the viewer options or call `viewer.setMaxZoom(max)` to limit all zoom input. The library default is 1024; valid limits range from 0.25 to 1024. Lowering the limit clamps the current zoom while keeping the world center. Raising it leaves the current zoom unchanged. The limit persists across map changes. Fit uses 1×, or the limit when it is below 1×.
 
-The demo starts with a 400× limit. The switch beside the zoom number enables extended zoom up to 1024×. Its popover explains both limits. Turning it off restores the 400× limit and reduces a closer view to 400×. Extended zoom starts off on each page load.
+The demo starts with a 400× limit. Settings can enable extended zoom up to 1,024×. Turning it off restores the 400× limit and reduces a closer view to 400×.
 
 Use `viewer.setMap(otherImage, {preserveView: true})` to compare images with identical world dimensions while retaining zoom and center. The demo saves grid, label, tint, contour and topographic style preferences locally and discovers optional views from `/maps/variants.json`; the original source image is always available.
+
+## Demo controls
+
+Choose a map from the upper-left menu and a view from the lower-left cards or Layers panel. Drag to pan, use the wheel or pinch to zoom, double-click to zoom in, and use the right-side controls to zoom or fit. The jump field accepts grid references such as `E4`, meter coordinates such as `12000,-4500`, and saved pin names. The readout copies the current coordinates when selected. The overview map moves the main view when clicked or dragged.
+
+The toolbar provides Navigate, Measure, and Pin tools. Pin names and colors can be edited in the inspector; Places can export or import a JSON pin file. Click to add measurement points, then double-click or press Enter to finish. Drag finished route points to edit them. The inspector shows each leg's distance and bearing, the total in metric and nautical units, and travel times at common flight speeds or a custom speed. Use Ctrl/Cmd+Z to undo pin and measurement actions. Right-click, long-press, or press Shift+F10 for map actions.
+
+Copy view link shares the map, view, center, zoom, and up to eight pins. Opening a link restores the view and offers to add shared pins locally; it does not save pins automatically. Links to views above 400× enable extended zoom. The address updates as you move, so reloading restores the current view. Search clears after a jump; Escape clears its text first, then closes it. On phones, panels open above the toolbar. Tap outside a panel or drag its handle down to close it.
+
+Press `/` or Ctrl/Cmd+K to search, `V`/`M`/`P` to choose a tool, `B` for Places, `L` for Layers, `G` for grid, `H` for the minimap, `1`/`2`/`3` for views, `,` for Settings, and `?` for all shortcuts. Escape closes the active panel or cancels a tool. The canvas also supports arrows to pan, `+`/`-` to zoom, and `0` to fit. Pin and display settings stay in this browser.
 
 The schema-one catalog contains `maps` with `id`, `name`, `widthMeters`, `heightMeters`, `image`, and `grid: {columns, rows, offsetX, offsetY}`. Image URLs resolve relative to the manifest. Grid lines use `x = -offsetX + column * 10000` and `z = offsetY - row * 10000`; grid extent is independent of sprite bounds.
 

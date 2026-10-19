@@ -1,65 +1,133 @@
-import { gridRowLabel } from '../../src/catalog';
+import { gridRowLabel } from "../../src/catalog";
 
-export type UnitSystem = 'metric' | 'nautical';
+export type UnitSystem = "metric" | "nautical";
 type Point = { x: number; z: number };
-type GridMap = { widthMeters: number; heightMeters: number; grid: { columns: number; rows: number; offsetX: number; offsetY: number } };
+type GridMap = {
+  widthMeters: number;
+  heightMeters: number;
+  grid: { columns: number; rows: number; offsetX: number; offsetY: number };
+};
 export type ParsedLocation =
-  | { kind: 'grid'; reference: string; x: number; z: number; cell: { minX: number; minZ: number; maxX: number; maxZ: number } }
-  | { kind: 'point'; x: number; z: number };
+  | {
+      kind: "grid";
+      reference: string;
+      x: number;
+      z: number;
+      cell: { minX: number; minZ: number; maxX: number; maxZ: number };
+    }
+  | { kind: "point"; x: number; z: number };
 
 const NM_METERS = 1852;
 const KNOT_METERS_PER_SECOND = NM_METERS / 3600;
 /** Approximate speed of sound at sea level, in knots. */
 export const MACH_1_KNOTS = 661.5;
-const group = (value: string) => value.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+const group = (value: string) => value.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 const fixed = (value: number, digits: number) => {
   const result = value.toFixed(digits);
-  const [whole, fraction] = result.split('.');
-  return group(whole) + (fraction === undefined ? '' : `.${fraction}`);
+  const [whole, fraction] = result.split(".");
+  return group(whole) + (fraction === undefined ? "" : `.${fraction}`);
 };
 const normalize = (degrees: number) => ((degrees % 360) + 360) % 360;
 
-export function distanceMeters(a: Point, b: Point): number { return Math.hypot(b.x - a.x, b.z - a.z); }
-export function bearingDegrees(a: Point, b: Point): number { return normalize(Math.atan2(b.x - a.x, b.z - a.z) * 180 / Math.PI); }
+export function distanceMeters(a: Point, b: Point): number {
+  return Math.hypot(b.x - a.x, b.z - a.z);
+}
+export function bearingDegrees(a: Point, b: Point): number {
+  return normalize((Math.atan2(b.x - a.x, b.z - a.z) * 180) / Math.PI);
+}
 export function cardinal(deg: number): string {
-  const points = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+  const points = [
+    "N",
+    "NNE",
+    "NE",
+    "ENE",
+    "E",
+    "ESE",
+    "SE",
+    "SSE",
+    "S",
+    "SSW",
+    "SW",
+    "WSW",
+    "W",
+    "WNW",
+    "NW",
+    "NNW",
+  ];
   return points[Math.round(normalize(deg) / 22.5) % 16];
 }
 export function formatBearing(deg: number): string {
   const rounded = Math.round(normalize(deg)) % 360;
-  return `${String(rounded).padStart(3, '0')}° ${cardinal(deg)}`;
+  return `${String(rounded).padStart(3, "0")}° ${cardinal(deg)}`;
 }
 export function formatDistance(meters: number, units: UnitSystem): string {
   const magnitude = Math.abs(meters);
-  if (units === 'metric') return magnitude < 1000 ? `${fixed(magnitude, 0)} m` : `${fixed(magnitude / 1000, magnitude < 100000 ? 1 : 0)} km`;
-  if (units === 'nautical') return magnitude < NM_METERS / 10 ? `${fixed(magnitude, 0)} m` : `${fixed(magnitude / NM_METERS, magnitude < NM_METERS * 100 ? 1 : 0)} nm`;
-  throw new TypeError('Unknown unit system');
+  if ((units === "metric" || units === "nautical") && magnitude > 0 && magnitude < 1)
+    return magnitude < 0.01 ? "<0.01 m" : `${fixed(magnitude, 2)} m`;
+  if (units === "metric")
+    return magnitude < 1000
+      ? `${fixed(magnitude, 0)} m`
+      : `${fixed(magnitude / 1000, magnitude < 100000 ? 1 : 0)} km`;
+  if (units === "nautical")
+    return magnitude < NM_METERS / 10
+      ? `${fixed(magnitude, 0)} m`
+      : `${fixed(magnitude / NM_METERS, magnitude < NM_METERS * 100 ? 1 : 0)} nm`;
+  throw new TypeError("Unknown unit system");
 }
-export function formatCoordinate(v: number): string { return fixed(Math.round(v), 0); }
-export function knotsToMetersPerSecond(knots: number): number { return knots * KNOT_METERS_PER_SECOND; }
-export function travelTimeSeconds(meters: number, speedKnots: number): number { return meters / knotsToMetersPerSecond(speedKnots); }
+export function formatCoordinate(v: number): string {
+  return fixed(Math.round(v), 0);
+}
+export function knotsToMetersPerSecond(knots: number): number {
+  return knots * KNOT_METERS_PER_SECOND;
+}
+export function travelTimeSeconds(meters: number, speedKnots: number): number {
+  return meters / knotsToMetersPerSecond(speedKnots);
+}
 export function formatDuration(seconds: number): string {
   const total = Math.max(0, Math.round(seconds));
-  const hours = Math.floor(total / 3600), minutes = Math.floor(total % 3600 / 60), remainder = total % 60;
-  if (hours) return `${hours}h ${String(minutes).padStart(2, '0')}m`;
-  if (minutes) return `${minutes}m ${String(remainder).padStart(2, '0')}s`;
+  const hours = Math.floor(total / 3600),
+    minutes = Math.floor((total % 3600) / 60),
+    remainder = total % 60;
+  if (hours) return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+  if (minutes) return `${minutes}m ${String(remainder).padStart(2, "0")}s`;
   return `${remainder}s`;
 }
 
 /** Choose a 1/2/5 scale in meters or nautical miles, favoring the center of the requested width. */
-export function niceScaleBar(metersPerPixel: number, units: UnitSystem, minPx = 80, maxPx = 160): { meters: number; pixels: number; label: string } {
-  if (!Number.isFinite(metersPerPixel) || metersPerPixel <= 0 || !Number.isFinite(minPx) || !Number.isFinite(maxPx) || minPx <= 0 || maxPx < minPx) throw new TypeError('Invalid scale bar range');
-  const base = units === 'nautical' ? NM_METERS : units === 'metric' ? 1 : NaN;
-  if (!Number.isFinite(base)) throw new TypeError('Unknown unit system');
-  const target = metersPerPixel * (minPx + maxPx) / 2 / base;
+export function niceScaleBar(
+  metersPerPixel: number,
+  units: UnitSystem,
+  minPx = 80,
+  maxPx = 160,
+): { meters: number; pixels: number; label: string } {
+  if (
+    !Number.isFinite(metersPerPixel) ||
+    metersPerPixel <= 0 ||
+    !Number.isFinite(minPx) ||
+    !Number.isFinite(maxPx) ||
+    minPx <= 0 ||
+    maxPx < minPx
+  )
+    throw new TypeError("Invalid scale bar range");
+  const base = units === "nautical" ? NM_METERS : units === "metric" ? 1 : NaN;
+  if (!Number.isFinite(base)) throw new TypeError("Unknown unit system");
+  const target = (metersPerPixel * (minPx + maxPx)) / 2 / base;
   const exponent = Math.floor(Math.log10(target));
   let best: { meters: number; pixels: number; label: string } | null = null;
   let bestScore = Infinity;
-  for (let power = exponent - 2; power <= exponent + 2; power++) for (const factor of [1, 2, 5]) {
-    const meters = factor * 10 ** power * base, pixels = meters / metersPerPixel;
-    const score = pixels >= minPx && pixels <= maxPx ? Math.abs(pixels - (minPx + maxPx) / 2) : 1000 + Math.min(Math.abs(pixels - minPx), Math.abs(pixels - maxPx));
-    if (score < bestScore) { bestScore = score; best = { meters, pixels, label: formatDistance(meters, units) }; }
-  }
+  for (let power = exponent - 2; power <= exponent + 2; power++)
+    for (const factor of [1, 2, 5]) {
+      const meters = factor * 10 ** power * base,
+        pixels = meters / metersPerPixel;
+      const score =
+        pixels >= minPx && pixels <= maxPx
+          ? Math.abs(pixels - (minPx + maxPx) / 2)
+          : 1000 + Math.min(Math.abs(pixels - minPx), Math.abs(pixels - maxPx));
+      if (score < bestScore) {
+        bestScore = score;
+        best = { meters, pixels, label: formatDistance(meters, units) };
+      }
+    }
   return best!;
 }
 
@@ -78,16 +146,38 @@ export function parseLocation(input: string, map: GridMap): ParsedLocation | nul
     for (const letter of grid[1].toUpperCase()) row = row * 26 + letter.charCodeAt(0) - 64;
     row--;
     const column = Number(grid[2]);
-    if (!Number.isSafeInteger(row) || row < 0 || row >= map.grid.rows || !Number.isSafeInteger(column) || column >= map.grid.columns) return null;
+    if (
+      !Number.isSafeInteger(row) ||
+      row < 0 ||
+      row >= map.grid.rows ||
+      !Number.isSafeInteger(column) ||
+      column >= map.grid.columns
+    )
+      return null;
     const cell = cellRect(map, column, row);
-    return { kind: 'grid', reference: `${gridRowLabel(row)}${column}`, x: (cell.minX + cell.maxX) / 2, z: (cell.minZ + cell.maxZ) / 2, cell };
+    return {
+      kind: "grid",
+      reference: `${gridRowLabel(row)}${column}`,
+      x: (cell.minX + cell.maxX) / 2,
+      z: (cell.minZ + cell.maxZ) / 2,
+      cell,
+    };
   }
-  const number = '([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))';
-  const marked = new RegExp(`^x\\s*=?\\s*${number}\\s*,?\\s*z\\s*=?\\s*${number}$`, 'i').exec(value);
+  const number = "([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))";
+  const marked = new RegExp(`^x\\s*=?\\s*${number}\\s*,?\\s*z\\s*=?\\s*${number}$`, "i").exec(
+    value,
+  );
   const plain = new RegExp(`^${number}(?:\\s*,\\s*|\\s+)${number}$`).exec(value);
   const match = marked ?? plain;
   if (!match) return null;
-  const x = Number(match[1]), z = Number(match[2]);
-  if (!Number.isFinite(x) || !Number.isFinite(z) || Math.abs(x) > map.widthMeters / 2 || Math.abs(z) > map.heightMeters / 2) return null;
-  return { kind: 'point', x, z };
+  const x = Number(match[1]),
+    z = Number(match[2]);
+  if (
+    !Number.isFinite(x) ||
+    !Number.isFinite(z) ||
+    Math.abs(x) > map.widthMeters / 2 ||
+    Math.abs(z) > map.heightMeters / 2
+  )
+    return null;
+  return { kind: "point", x, z };
 }

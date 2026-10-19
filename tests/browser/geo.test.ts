@@ -18,6 +18,10 @@ describe('map geometry and formatting', () => {
   });
   it('formats distances, coordinates, speeds and times without locale dependence', () => {
     expect(formatDistance(742, 'metric')).toBe('742 m');
+    expect(formatDistance(.175, 'metric')).toBe('0.17 m');
+    expect(formatDistance(.175, 'nautical')).toBe('0.17 m');
+    expect(formatDistance(.001, 'metric')).toBe('<0.01 m');
+    expect(formatDistance(0, 'metric')).toBe('0 m');
     expect(formatDistance(12400, 'metric')).toBe('12.4 km');
     expect(formatDistance(123456, 'metric')).toBe('123 km');
     expect(formatDistance(100, 'nautical')).toBe('100 m');
