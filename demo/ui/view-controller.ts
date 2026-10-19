@@ -48,8 +48,19 @@ export class ViewController {
       z: s.centerZ,
       gridReference: gridReference(this.app.session.current, s.centerX, s.centerZ),
     };
-    $("readout").textContent =
-      `${p.gridReference ?? "—"} · x ${formatCoordinate(p.x)} · z ${formatCoordinate(p.z)}` +
-      ` · 1 px = ${formatDistance(1 / s.scale, this.app.settings.units)}`;
+    const field = (name: string, value: string, className = "") => {
+      const node = document.createElement("span");
+      node.className = `readout-field ${className}`.trim();
+      const label = document.createElement("small");
+      label.textContent = name;
+      node.append(label, value);
+      return node;
+    };
+    $("readout").replaceChildren(
+      field("Grid", p.gridReference ?? "—", "grid"),
+      field("X", formatCoordinate(p.x)),
+      field("Z", formatCoordinate(p.z)),
+      field("Px", formatDistance(1 / s.scale, this.app.settings.units), "secondary"),
+    );
   }
 }

@@ -144,16 +144,9 @@ export class DrawerController {
     };
     handle.onclick = () => this.closeDrawer();
     const responsiveLayout = () => {
-      const desktop = matchMedia("(min-width:900px)").matches;
-      $("sheet-backdrop").hidden = !this.app.drawer || desktop;
-      const parent = document.querySelector(desktop ? ".bottom-left" : ".bottom-center")!;
-      parent.prepend($("scale-bar"));
+      $("sheet-backdrop").hidden = !this.app.drawer || matchMedia("(min-width:900px)").matches;
     };
     responsiveLayout();
     matchMedia("(min-width:900px)").addEventListener("change", responsiveLayout);
-    new ResizeObserver((entries) => {
-      const height = entries[0]?.contentRect.height ?? 40;
-      document.documentElement.style.setProperty("--bottom-stack-height", `${height}px`);
-    }).observe(document.querySelector(".bottom-center")!);
   }
 }

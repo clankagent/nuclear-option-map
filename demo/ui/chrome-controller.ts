@@ -14,22 +14,11 @@ export class ChromeController {
       ["search-icon", "search"],
       ["search-open", "search"],
       ["settings-open", "settings"],
-      ["places-open", "places"],
-      ["layers-open", "layers"],
       ["copy-link", "link"],
       ["drawer-close", "close"],
     ];
     entries.forEach(([id, name]) => {
       $(id).innerHTML = icon(name);
-    });
-    document.querySelectorAll<HTMLButtonElement>("[data-tool]").forEach((button) => {
-      button.innerHTML = icon(
-        button.dataset.tool === "navigate"
-          ? "hand"
-          : button.dataset.tool === "measure"
-            ? "measure"
-            : "pin",
-      );
     });
   }
 

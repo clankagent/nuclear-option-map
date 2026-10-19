@@ -3,7 +3,7 @@ const paths: Record<string, string> = {
   chevron: '<path d="m5 8 5 5 5-5"/>',
   search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
   settings:
-    '<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M4.9 4.9 7 7m10 10 2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/>',
+    '<path d="M4 7h9m4 0h3M4 17h3m4 0h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
   hand:
     '<path d="M8 13V5a1.5 1.5 0 0 1 3 0v6-7a1.5 1.5 0 0 1 3 0v7-5' +
     "a1.5 1.5 0 0 1 3 0v5-2a1.5 1.5 0 0 1 3 0v5c0 5-3 8-7 8h-2" +
@@ -23,8 +23,8 @@ const paths: Record<string, string> = {
 };
 export function icon(name: keyof typeof paths): string {
   return (
-    '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" ' +
-    'stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter" aria-hidden="true">' +
     paths[name] +
     "</svg>"
   );

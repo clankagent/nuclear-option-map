@@ -31,27 +31,12 @@ export class CatalogController {
     this.app.session.viewOptions.forEach((variant, i) => {
       const loading = this.app.session.loadingVariantId === variant.id;
       const button = document.createElement("button");
-      button.className = "view-card" + (loading ? " loading" : "");
+      button.className = "view-tab" + (loading ? " loading" : "");
       button.type = "button";
+      button.textContent = variant.label;
+      button.title = `${variant.label} (${i + 1})`;
       button.setAttribute("aria-pressed", String(this.app.session.variantId === variant.id));
-      button.setAttribute("aria-label", `${variant.label} view`);
       button.setAttribute("aria-busy", String(loading));
-      const thumb = document.createElement("span");
-      thumb.className = "thumb";
-      thumb.style.backgroundImage = `url("${variant.image.replace(/"/g, "%22")}")`;
-      const caption = document.createElement("span");
-      caption.className = "card-caption";
-      caption.textContent = variant.label;
-      const status = document.createElement("small");
-      if (loading) status.textContent = "Loading…";
-      else if (this.app.session.variantId === variant.id) status.textContent = "Active";
-      else {
-        const key = document.createElement("kbd");
-        key.textContent = String(i + 1);
-        status.append(key);
-      }
-      caption.append(status);
-      button.append(thumb, caption);
       button.onclick = () => void this.switchView(variant.id);
       cards.append(button);
     });

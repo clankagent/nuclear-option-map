@@ -9,27 +9,25 @@
   </head>
   <body>
     <main class="map-app" aria-label="Nuclear Option map">
-      <canvas
-        id="map-canvas"
-        tabindex="0"
-        aria-label="Map view. Arrow keys pan; plus and minus zoom; zero fits the map."
-      ></canvas
-      ><canvas id="map-overlay" aria-hidden="true"></canvas>
-      <header class="topbar">
+      <header class="sheet-head">
         <div class="switcher-wrap">
           <button
             id="map-switcher"
-            class="panel brand"
+            class="title-block"
             type="button"
             aria-haspopup="listbox"
             aria-expanded="false"
             aria-controls="map-menu"
           >
-            <span class="brand-title" aria-hidden="true">NO</span
-            ><span id="map-name">Choose map</span><span id="chevron-icon"></span>
+            <span class="kicker" aria-hidden="true">Nuclear Option</span>
+            <span class="title-line"
+              ><span id="map-name">Choose map</span><span id="chevron-icon"></span
+            ></span>
           </button>
-          <div id="map-menu" class="panel menu" role="listbox" aria-label="Maps" hidden></div>
+          <div id="map-menu" class="menu" role="listbox" aria-label="Maps" hidden></div>
         </div>
+        <div id="view-cards" class="view-tabs" role="group" aria-label="Map views"></div>
+        <div class="head-spacer"></div>
         <div class="jump-wrap">
           <button
             id="search-open"
@@ -37,7 +35,7 @@
             aria-label="Search map"
             type="button"
           ></button>
-          <div id="jump-panel" class="panel jump-panel">
+          <div id="jump-panel" class="jump-panel">
             <span id="search-icon"></span
             ><input
               id="jump-input"
@@ -47,132 +45,99 @@
               aria-label="Jump to grid, coordinates, or pin"
               aria-controls="jump-results"
               aria-expanded="false"
-              placeholder="Jump to grid, coordinates or pin…"
+              placeholder="Grid, coordinates or pin"
             /><kbd>/</kbd>
             <div id="jump-results" class="jump-results" role="listbox" hidden></div>
           </div>
         </div>
-        <div class="top-actions">
-          <a id="status-chip" class="panel status-chip" href="/status/" hidden
-            ><span class="status-dot"></span><span id="status-text">Status</span></a
-          ><button
-            id="settings-open"
-            class="panel icon-button"
-            type="button"
-            aria-label="Settings"
-            aria-expanded="false"
-          ></button>
-        </div>
+        <button
+          id="settings-open"
+          class="icon-button"
+          type="button"
+          aria-label="Settings"
+          title="Settings (,)"
+          aria-expanded="false"
+        ></button>
       </header>
-      <nav id="tools-rail" class="panel tools-rail" role="toolbar" aria-label="Map tools">
+
+      <nav id="tools-rail" class="tool-strip" role="toolbar" aria-label="Map tools">
+        <button type="button" data-tool="navigate" aria-pressed="true" title="Pan (V)">
+          Pan
+        </button>
+        <button type="button" data-tool="measure" aria-pressed="false" title="Measure (M)">
+          Measure
+        </button>
+        <button type="button" data-tool="pin" aria-pressed="false" title="Drop pin (P)">
+          Pin
+        </button>
+        <span class="strip-rule" aria-hidden="true"></span>
         <button
           type="button"
-          data-tool="navigate"
-          aria-label="Navigate"
-          aria-pressed="true"
-          title="Navigate (V)"
-        ></button
-        ><button
-          type="button"
-          data-tool="measure"
-          aria-label="Measure"
-          aria-pressed="false"
-          title="Measure (M)"
-        ></button
-        ><button
-          type="button"
-          data-tool="pin"
-          aria-label="Drop pin"
-          aria-pressed="false"
-          title="Drop pin (P)"
-        ></button
-        ><span class="rail-divider"></span
-        ><button
-          type="button"
           id="places-open"
-          aria-label="Places"
           aria-expanded="false"
           title="Places (B)"
-        ></button
-        ><button
+        >
+          Places
+        </button>
+        <button
           type="button"
           id="layers-open"
-          aria-label="Layers"
+          class="layers-open"
           aria-expanded="false"
           title="Layers (L)"
-        ></button>
-      </nav>
-      <section id="minimap" class="panel minimap" aria-label="Overview map">
-        <div class="minimap-heading">
-          <span class="eyebrow">Overview</span
-          ><button
-            id="minimap-collapse"
-            class="mini-button"
-            type="button"
-            aria-label="Collapse overview"
-            aria-expanded="true"
-          >
-            −
-          </button>
-        </div>
-        <div
-          id="minimap-surface"
-          class="minimap-surface"
-          role="button"
-          tabindex="0"
-          aria-label="Move map view"
         >
-          <div id="minimap-viewport"></div>
-        </div>
-      </section>
-      <div class="zoom-stack panel">
-        <button id="zoom-in" type="button" aria-label="Zoom in">+</button
-        ><button id="zoom-out" type="button" aria-label="Zoom out">−</button
-        ><button id="fit" type="button" aria-label="Fit map">⛶</button
-        ><span id="zoom-badge">—</span>
-      </div>
-      <div class="bottom-left">
-        <div id="scale-bar" class="scale-bar mono">
-          <span id="scale-line"></span><span id="scale-label">—</span>
-        </div>
-        <div id="view-cards" class="view-cards" role="group" aria-label="Map views"></div>
-      </div>
-      <div class="bottom-center">
-        <div id="water-preview" class="panel water-preview" hidden>
-          <span id="water-preview-status"></span
-          ><a href="/status/#coverage-sec">Coverage and gaps</a>
-        </div>
-        <div class="panel readout">
-          <button
-            id="readout-copy"
-            class="readout-text mono"
-            type="button"
-            aria-label="Copy coordinates"
+          Layers
+        </button>
+      </nav>
+
+      <div class="stage">
+        <canvas
+          id="map-canvas"
+          tabindex="0"
+          aria-label="Map view. Arrow keys pan; plus and minus zoom; zero fits the map."
+        ></canvas
+        ><canvas id="map-overlay" aria-hidden="true"></canvas>
+
+        <section id="minimap" class="inset" aria-label="Overview map">
+          <div class="minimap-heading">
+            <span>Overview</span
+            ><button
+              id="minimap-collapse"
+              class="mini-button"
+              type="button"
+              aria-label="Collapse overview"
+              aria-expanded="true"
+            >
+              −
+            </button>
+          </div>
+          <div
+            id="minimap-surface"
+            class="minimap-surface"
+            role="button"
+            tabindex="0"
+            aria-label="Move map view"
           >
-            <span id="readout">Grid — · x — · z — · 1 px = —</span></button
-          ><span id="interval-chip" class="interval-chip" hidden></span
-          ><button
-            id="copy-link"
-            class="icon-button"
-            type="button"
-            aria-label="Copy view link"
-            title="Copy view link"
-          ></button>
+            <div id="minimap-viewport"></div>
+          </div>
+        </section>
+
+        <div id="load-state" class="load-state" role="status" aria-live="polite">
+          <div class="load-card">
+            <span class="load-mark"></span><strong id="load-title">Starting map engine</strong
+            ><span id="load-detail">Initializing WASM…</span
+            ><button id="load-retry" type="button" hidden>Retry</button>
+          </div>
         </div>
-      </div>
-      <div id="load-state" class="load-state" role="status" aria-live="polite">
-        <div class="load-card panel">
-          <span class="load-mark"></span><strong id="load-title">Starting map engine</strong
-          ><span id="load-detail">Initializing WASM…</span
-          ><button id="load-retry" type="button" hidden>Retry</button>
+        <div id="error-banner" class="error-banner" role="alert" hidden>
+          <span id="error-message"></span><button id="error-retry" type="button">Retry</button
+          ><button id="error-close" type="button" aria-label="Close error">×</button>
         </div>
+        <div id="toasts" class="toasts" aria-live="polite"></div>
+        <div id="sheet-backdrop" class="sheet-backdrop" hidden></div>
       </div>
-      <div id="error-banner" class="panel error-banner" role="alert" hidden>
-        <span id="error-message"></span><button id="error-retry" type="button">Retry</button
-        ><button id="error-close" type="button" aria-label="Close error">×</button>
-      </div>
-      <div id="sheet-backdrop" class="sheet-backdrop" hidden></div>
-      <aside id="drawer" class="panel drawer" aria-label="Map panel" hidden>
+
+      <aside id="drawer" class="drawer" aria-label="Map panel" hidden>
         <button
           id="sheet-handle"
           class="sheet-handle"
@@ -180,7 +145,7 @@
           aria-label="Dismiss panel"
         ></button>
         <div class="drawer-head">
-          <span id="drawer-title" class="eyebrow">Panel</span
+          <span id="drawer-title">Panel</span
           ><button
             id="drawer-close"
             class="icon-button"
@@ -190,14 +155,46 @@
         </div>
         <div id="drawer-body" class="drawer-body"></div>
       </aside>
-      <div
-        id="context-menu"
-        class="panel context-menu"
-        role="menu"
-        aria-label="Map actions"
-        hidden
-      ></div>
-      <div id="toasts" class="toasts" aria-live="polite"></div>
+
+      <footer class="sheet-foot">
+        <div class="readout">
+          <button
+            id="readout-copy"
+            class="readout-text"
+            type="button"
+            aria-label="Copy coordinates"
+            title="Copy coordinates"
+          >
+            <span id="readout">—</span></button
+          ><span id="interval-chip" class="interval-chip" hidden></span
+          ><button
+            id="copy-link"
+            class="icon-button"
+            type="button"
+            aria-label="Copy view link"
+            title="Copy view link"
+          ></button>
+        </div>
+        <div id="scale-bar" class="scale-bar">
+          <span id="scale-line"></span><span id="scale-label">—</span>
+        </div>
+        <div id="water-preview" class="water-preview" hidden>
+          <span id="water-preview-status"></span
+          ><a href="/status/#coverage-sec">Coverage and gaps</a>
+        </div>
+        <div class="foot-spacer"></div>
+        <a id="status-chip" class="status-chip" href="/status/" hidden
+          ><span class="status-dot"></span><span id="status-text">Status</span></a
+        >
+        <div class="zoom-stack">
+          <button id="zoom-out" type="button" aria-label="Zoom out" title="Zoom out (−)">−</button
+          ><span id="zoom-badge">—</span
+          ><button id="zoom-in" type="button" aria-label="Zoom in" title="Zoom in (+)">+</button
+          ><button id="fit" type="button" aria-label="Fit map" title="Fit map (0)">Fit</button>
+        </div>
+      </footer>
+
+      <div id="context-menu" class="context-menu" role="menu" aria-label="Map actions" hidden></div>
       <dialog id="shortcuts-dialog" aria-labelledby="shortcuts-title">
         <div class="dialog-head">
           <h2 id="shortcuts-title">Keyboard shortcuts</h2>
