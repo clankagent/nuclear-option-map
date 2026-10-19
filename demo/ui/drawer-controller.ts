@@ -48,12 +48,7 @@ export class DrawerController {
     this.app.drawer = kind;
     $("drawer").hidden = false;
     $("drawer").inert = false;
-    $("drawer-title").textContent =
-      kind === "pin"
-        ? "Pin details"
-        : kind === "measure"
-          ? "Measurement"
-          : kind[0].toUpperCase() + kind.slice(1);
+    $("drawer-title").textContent = kind[0].toUpperCase() + kind.slice(1);
     $("sheet-backdrop").hidden = matchMedia("(min-width:900px)").matches;
     this.renderDrawer();
     this.syncDrawerButtons();
@@ -74,25 +69,9 @@ export class DrawerController {
     renderPanel(this.app.drawer, $("drawer-body"), {
       session: this.app.session,
       settings: this.app.settings,
-      state: this.app.state,
       pins: this.app.pins,
       onSettings: () => this.app.settingsController.applySettings(),
-      onPin: (pin) => {
-        this.app.undo.push({ kind: "pins", before: [...this.app.pins] });
-        this.app.pins = this.app.pins.map((p) => (p.id === pin.id ? pin : p));
-        this.app.pinsController.saveCurrentPins();
-      },
       onDelete: (id) => this.app.pinsController.deleteSelected(id),
-      onMeasureFrom: (point) => {
-        this.app.measure.pushMeasureUndo();
-        this.app.state = {
-          ...this.app.state,
-          points: [{ x: point.x, z: point.z }],
-          finished: false,
-        };
-        this.app.measure.setTool("measure");
-        this.app.view.syncOverlay();
-      },
       onFly: (point) => {
         this.app.fly.to(point);
         this.closeDrawer();
@@ -100,14 +79,6 @@ export class DrawerController {
       onExport: () => this.app.pinsController.exportPinFile(),
       onImport: (file) => void this.app.pinsController.importPinFile(file),
       onCopy: (value) => void this.app.clipboard.copyText(value),
-      onUndoPoint: () => this.app.measure.undoMeasurePoint(),
-      onClearMeasure: () => {
-        this.app.measure.pushMeasureUndo();
-        this.app.state = { ...this.app.state, points: [], finished: false };
-        this.app.view.syncOverlay();
-        this.renderDrawer();
-      },
-      onFinishMeasure: () => this.app.measure.finishMeasurement(),
       onView: (id) => void this.app.catalog.switchView(id),
       onShortcuts: () => this.app.showShortcuts(),
       onCopyLink: () => void this.app.permalink.copyLink(),

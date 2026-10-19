@@ -8,7 +8,6 @@ export class DemoApp {
   constructor() {
     this.app.session.onChange = () => this.app.view.syncSession();
     this.app.session.onViewChange = (state) => {
-      this.app.overlay.schedule();
       this.app.minimap.update(
         this.app.session.current,
         this.app.session.activeVariant?.image ?? this.app.session.current?.image ?? null,
@@ -34,7 +33,6 @@ export class DemoApp {
     const app = this.app;
     app.chrome.fillIcons();
     app.pointer.bind();
-    app.measure.bind();
     app.drawerController.bind();
     app.chrome.bind();
     app.catalog.bind();

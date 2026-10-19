@@ -11,7 +11,7 @@ export class SearchController {
       input = $<HTMLInputElement>("jump-input"),
       host = $("jump-results");
     if (!map) return;
-    this.searchResults = searchLocations(input.value, map, this.app.pins);
+    this.searchResults = searchLocations(input.value, map, []);
     host.replaceChildren();
     host.hidden = !input.value.trim();
     input.setAttribute("aria-expanded", String(!host.hidden));
@@ -19,7 +19,7 @@ export class SearchController {
       const hint = document.createElement("div");
       hint.className = "jump-hint";
       hint.textContent =
-        "Use a grid cell such as E4, coordinates such as 12000,-4500, or a saved pin name.";
+        "Use a grid cell such as E4 or coordinates such as 12000,-4500.";
       host.append(hint);
     }
     this.searchResults.forEach((result, i) => {

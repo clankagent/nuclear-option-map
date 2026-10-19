@@ -21,7 +21,6 @@ export class PermalinkController {
     this.restoringHash = false;
     this.app.view.syncSession();
     this.queueHash();
-    if (parsed.sharedPins?.length) this.app.pinsController.offerSharedPins(parsed.sharedPins);
   }
 
   queueHash() {
@@ -30,14 +29,12 @@ export class PermalinkController {
     const delay = Math.max(400, this.lastHashTime + 400 - performance.now());
     this.hashTimer = window.setTimeout(() => {
       const s = this.app.session.viewer!.state;
-      const shared = parseHash(location.hash).sharedPins;
       const hash = buildHash({
         map: this.app.session.current!.id,
         variant: this.app.session.variantId,
         centerX: s.centerX,
         centerZ: s.centerZ,
         zoom: s.zoom,
-        sharedPins: shared,
       });
       if (location.hash !== hash) history.replaceState(null, "", hash);
       this.lastHashTime = performance.now();
@@ -68,7 +65,6 @@ export class PermalinkController {
       this.restoringHash = false;
     }
     this.queueHash();
-    if (h.sharedPins?.length) this.app.pinsController.offerSharedPins(h.sharedPins);
   }
 
   enableLinkedZoom(zoom?: number) {
@@ -81,14 +77,12 @@ export class PermalinkController {
   async copyLink() {
     if (!this.app.session.viewer || !this.app.session.current) return;
     const s = this.app.session.viewer.state;
-    const sharedPins = this.app.pins.slice(0, 8).map(({ name, x, z }) => ({ name, x, z }));
     const hash = buildHash({
       map: this.app.session.current.id,
       variant: this.app.session.variantId,
       centerX: s.centerX,
       centerZ: s.centerZ,
       zoom: s.zoom,
-      sharedPins,
     });
     await this.app.clipboard.copyText(
       `${location.origin}${location.pathname}${location.search}${hash}`,

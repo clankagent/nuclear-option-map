@@ -407,17 +407,12 @@ kbd {
   background: #0b0b0a;
 }
 
-#map-canvas,
-#map-overlay {
+#map-canvas {
   position: absolute;
   inset: 0;
   display: block;
   width: 100%;
   height: 100%;
-}
-
-#map-overlay {
-  pointer-events: none;
 }
 
 #map-canvas {
@@ -426,11 +421,6 @@ kbd {
 
 #map-canvas:active {
   cursor: grabbing;
-}
-
-#map-canvas[data-tool="measure"],
-#map-canvas[data-tool="pin"] {
-  cursor: crosshair;
 }
 
 #map-canvas:focus-visible {

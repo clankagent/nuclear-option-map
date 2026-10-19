@@ -21,24 +21,11 @@ export class KeyboardController {
       return;
     }
     if (editing) return;
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
-      event.preventDefault();
-      this.app.history.undoLast();
-      return;
-    }
     if (event.key === "Escape") {
       if (this.app.menu.isOpen) this.app.menu.close();
       else if (!$("jump-results").hidden) this.app.search.closeSearch();
       else if (!$("map-menu").hidden) this.app.catalog.closeMapMenu();
-      else if (
-        this.app.state.tool === "measure" &&
-        !this.app.state.finished &&
-        (!this.app.drawer || this.app.drawer === "measure")
-      ) {
-        if (this.app.state.points.length) this.app.measure.undoMeasurePoint();
-        else this.app.measure.setTool("navigate");
-      } else if (this.app.drawer) this.app.drawerController.closeDrawer();
-      else this.app.measure.setTool("navigate");
+      else if (this.app.drawer) this.app.drawerController.closeDrawer();
       return;
     }
     if ((event.key === "F10" && event.shiftKey) || event.key === "ContextMenu") {
@@ -52,29 +39,12 @@ export class KeyboardController {
         });
       return;
     }
-    if (event.key === "Backspace" && this.app.state.tool === "measure") {
-      event.preventDefault();
-      this.app.measure.undoMeasurePoint();
-      return;
-    }
-    if (event.key === "Enter" && this.app.state.tool === "measure" && target === this.app.canvas) {
-      event.preventDefault();
-      this.app.measure.finishMeasurement();
-      return;
-    }
-    if (event.key === "Delete") {
-      this.app.pinsController.deleteSelected();
-      return;
-    }
     const key = event.key.toLowerCase();
     const shortcuts: Record<string, () => void> = {
       "/": () => {
         $<HTMLInputElement>("jump-input").focus();
         document.querySelector(".jump-wrap")?.setAttribute("data-open", "true");
       },
-      v: () => this.app.measure.setTool("navigate"),
-      m: () => this.app.measure.setTool("measure"),
-      p: () => this.app.measure.setTool("pin"),
       b: () => this.app.drawerController.openDrawer("places"),
       l: () => this.app.drawerController.openDrawer("layers"),
       g: () => {

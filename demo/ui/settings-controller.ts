@@ -21,7 +21,6 @@ export class SettingsController {
           .catch(() => this.app.toasts.show("Could not load contours"));
     }
     saveSettings(this.app.settings);
-    this.app.view.syncOverlay();
     if (v) this.app.session.onViewChange(v.state);
   }
 }

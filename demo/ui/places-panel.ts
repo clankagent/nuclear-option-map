@@ -1,12 +1,20 @@
 import type { PanelContext } from "./panel-context";
 import { el, section, button, row } from "./panel-dom";
-import { PIN_HEX } from "./overlay";
+import type { Pin } from "./store";
 import { gridReference } from "../../src/catalog";
 import { icon } from "./icons";
 
+const PIN_HEX: Record<Pin["color"], string> = {
+  green: "#1f8a4c",
+  amber: "#c98a00",
+  red: "#c8312f",
+  blue: "#2463c9",
+  white: "#f4f1ea",
+};
+
 export function renderPlacesPanel(body: HTMLElement, c: PanelContext) {
   const s = section(body, `${c.pins.length} saved ${c.pins.length === 1 ? "pin" : "pins"}`);
-  if (!c.pins.length) s.append(el("p", "Use the Pin tool to add a place on this map."));
+  if (!c.pins.length) s.append(el("p", "No saved places on this map."));
   c.pins.forEach((pin) => {
     const item = el("div", undefined, "place-item");
     const fly = button(item, "", () => c.onFly(pin), "pin-row");

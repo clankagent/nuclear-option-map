@@ -42,10 +42,10 @@
               type="search"
               autocomplete="off"
               spellcheck="false"
-              aria-label="Jump to grid, coordinates, or pin"
+              aria-label="Jump to grid or coordinates"
               aria-controls="jump-results"
               aria-expanded="false"
-              placeholder="Grid, coordinates or pin"
+              placeholder="Grid or coordinates"
             /><kbd>/</kbd>
             <div id="jump-results" class="jump-results" role="listbox" hidden></div>
           </div>
@@ -61,16 +61,6 @@
       </header>
 
       <nav id="tools-rail" class="tool-strip" role="toolbar" aria-label="Map tools">
-        <button type="button" data-tool="navigate" aria-pressed="true" title="Pan (V)">
-          Pan
-        </button>
-        <button type="button" data-tool="measure" aria-pressed="false" title="Measure (M)">
-          Measure
-        </button>
-        <button type="button" data-tool="pin" aria-pressed="false" title="Drop pin (P)">
-          Pin
-        </button>
-        <span class="strip-rule" aria-hidden="true"></span>
         <button
           type="button"
           id="places-open"
@@ -95,8 +85,7 @@
           id="map-canvas"
           tabindex="0"
           aria-label="Map view. Arrow keys pan; plus and minus zoom; zero fits the map."
-        ></canvas
-        ><canvas id="map-overlay" aria-hidden="true"></canvas>
+        ></canvas>
 
         <section id="minimap" class="inset" aria-label="Overview map">
           <div class="minimap-heading">

@@ -20,15 +20,6 @@ export class ContextController {
           label: "Copy grid reference",
           run: () => void this.app.clipboard.copyText(grid ?? "Outside grid"),
         },
-        { label: "Drop pin here", run: () => this.app.pinsController.dropPin(point) },
-        {
-          label: "Measure from here",
-          run: () => {
-            this.app.measure.pushMeasureUndo();
-            this.app.state = { ...this.app.state, points: [point], finished: false };
-            this.app.measure.setTool("measure");
-          },
-        },
         { label: "Center here", run: () => this.app.fly.to(point) },
         {
           label: "Zoom in here",

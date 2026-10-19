@@ -8,8 +8,6 @@ export class ViewController {
   syncSession() {
     if (this.app.session.current && this.app.pinsController.mapId !== this.app.session.current.id) {
       this.app.pinsController.loadCurrentPins();
-      if (this.app.drawer === "pin" || this.app.drawer === "measure")
-        this.app.drawerController.closeDrawer();
     }
     $("map-name").textContent = this.app.session.current?.name ?? "Choose map";
     $("map-switcher").setAttribute(
@@ -28,16 +26,6 @@ export class ViewController {
       this.app.settings.minimapCollapsed,
     );
     if (this.app.drawer) this.app.drawerController.renderDrawer();
-    this.syncOverlay();
-  }
-
-  syncOverlay() {
-    this.app.overlay.pins = this.app.pins;
-    this.app.overlay.points = this.app.state.points;
-    this.app.overlay.selected = this.app.state.selectedPin;
-    this.app.overlay.finished = this.app.state.finished;
-    this.app.overlay.units = this.app.settings.units;
-    this.app.overlay.schedule();
   }
 
   updateReadout() {

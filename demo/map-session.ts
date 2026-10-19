@@ -159,7 +159,7 @@ export class MapSession {
   ) {
     const map = this.maps.find((item) => item.id === id);
     return map
-      ? this.showMap(map, variant ?? (this.waterPreviewEnabled ? "satellite" : ORIGINAL), restore)
+      ? this.showMap(map, variant ?? "satellite", restore)
       : Promise.resolve();
   }
   private async loadVariants(signal?: AbortSignal): Promise<void> {
