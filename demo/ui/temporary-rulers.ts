@@ -1,9 +1,9 @@
 import type { AppContext } from "./app-context";
 import { $ } from "./dom";
-import { formatDistance, niceScaleBar, type Point } from "./geo";
+import { formatDistance, niceScaleBar } from "./geo";
+import { joinRuler, rulerGroups, type Ruler, type RulerSegment } from "./ruler-groups";
 
-type Ruler = { start: Point; end: Point };
-type Draft = Ruler & {
+type Draft = RulerSegment & {
   pointerId: number;
   x: number;
   y: number;
@@ -144,7 +144,9 @@ export class TemporaryRulers {
         if (!d || d.pointerId !== event.pointerId || event.button !== 0) return;
         const local = this.app.pointer.local(event);
         if (Math.hypot(local.x - d.x, local.y - d.y) >= 4) {
-          this.rulers.push({ start: d.start, end: this.app.pointer.world(event) });
+          this.rulers.push(
+            joinRuler({ start: d.start, end: this.app.pointer.world(event) }, this.rulers, d.scale),
+          );
         }
         this.cancelDraft();
       },
@@ -224,15 +226,32 @@ export class TemporaryRulers {
         id: "ruler-stripes",
         patternUnits: "userSpaceOnUse",
         width: quarter * 2,
-        height: 6,
+        height: 3,
       });
     pattern.append(
-      svg("rect", { width: quarter * 2, height: 6, class: "ruler-dark" }),
-      svg("rect", { width: quarter, height: 6, class: "ruler-light" }),
+      svg("rect", { width: quarter * 2, height: 3, class: "ruler-dark" }),
+      svg("rect", { width: quarter, height: 3, class: "ruler-light" }),
     );
     defs.append(pattern);
     this.overlay.append(defs);
-    for (const ruler of [...this.rulers, ...(this.draft ? [this.draft] : [])]) {
+    const draft =
+      this.draft &&
+      Math.hypot(this.draft.end.x - this.draft.start.x, this.draft.end.z - this.draft.start.z) *
+        s.scale >=
+        4
+        ? joinRuler(this.draft, this.rulers, s.scale)
+        : null;
+    const rulers = [...this.rulers, ...(draft ? [draft] : [])];
+    const totals = new Map<number, number>();
+    for (const group of rulerGroups(rulers)) {
+      if (group.indices.length < 2) continue;
+      const anchor = [...group.indices].reverse().find((index) => {
+        const { start, end } = rulers[index];
+        return Math.hypot(end.x - start.x, end.z - start.z) * s.scale >= 4;
+      });
+      if (anchor !== undefined) totals.set(anchor, group.meters);
+    }
+    for (const [index, ruler] of rulers.entries()) {
       let a = viewer.worldToScreen(ruler.start.x, ruler.start.z),
         b = viewer.worldToScreen(ruler.end.x, ruler.end.z);
       const length = Math.hypot(b.x - a.x, b.y - a.y);
@@ -247,9 +266,9 @@ export class TemporaryRulers {
       group.append(
         svg("rect", {
           x: 0,
-          y: -3,
+          y: -1.5,
           width: length,
-          height: 6,
+          height: 3,
           fill: "url(#ruler-stripes)",
           class: "ruler-stick",
         }),
@@ -262,6 +281,17 @@ export class TemporaryRulers {
       });
       label.textContent = formatDistance(distance, this.app.settings.units);
       group.append(label);
+      const total = totals.get(index);
+      if (total !== undefined) {
+        const label = svg("text", {
+          x: length / 2,
+          y: 17,
+          "text-anchor": "middle",
+          class: "ruler-label ruler-total",
+        });
+        label.textContent = `Total ${formatDistance(total, this.app.settings.units)}`;
+        group.append(label);
+      }
       this.overlay.append(group);
     }
   }

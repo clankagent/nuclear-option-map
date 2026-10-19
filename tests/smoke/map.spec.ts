@@ -86,12 +86,17 @@ test("Satellite starts, pans, switches maps, and opens panels", async ({ page },
     "true",
   );
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  const painted = await canvas.evaluate((node) => {
-    const c = node as HTMLCanvasElement;
-    const pixel = c.getContext("2d")!.getImageData(c.width / 2 + 10, c.height / 2 + 10, 1, 1).data;
-    return pixel[0] + pixel[1] + pixel[2] > 50;
-  });
-  expect(painted).toBe(true);
+  await expect
+    .poll(() =>
+      canvas.evaluate((node) => {
+        const c = node as HTMLCanvasElement;
+        const pixel = c
+          .getContext("2d")!
+          .getImageData(c.width / 2 + 10, c.height / 2 + 10, 1, 1).data;
+        return pixel[0] + pixel[1] + pixel[2] > 50;
+      }),
+    )
+    .toBe(true);
   expect(errors).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath("map.png") });
 });
@@ -222,4 +227,48 @@ test("unfinished drags and touch gestures stay temporary", async ({ page, isMobi
   await page.reload();
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
   await expect(rulers).toHaveCount(0);
+});
+
+test("nearby endpoints show a combined total and keep each length", async ({ page }, testInfo) => {
+  await assets(page);
+  await page.goto("/");
+  const toggle = page.getByRole("button", { name: "Temporary measurement", exact: true });
+  await expect(toggle).toBeEnabled();
+  await toggle.click();
+  const canvas = page.locator("#map-canvas"),
+    box = (await canvas.boundingBox())!;
+  const x = box.x + box.width * 0.25,
+    y = box.y + box.height * 0.5;
+  const drag = async (sx: number, sy: number, ex: number, ey: number) => {
+    await page.mouse.move(sx, sy);
+    await page.mouse.down();
+    await page.mouse.move(ex, ey, { steps: 5 });
+    await page.mouse.up();
+  };
+  const rulers = page.locator(".temporary-ruler"),
+    totals = page.locator(".ruler-total");
+  await drag(x, y, x + 90, y);
+  await expect(totals).toHaveCount(0);
+  const individual = await rulers.first().locator("text").textContent();
+  await drag(x + 97, y + 2, x + 97, y - 78);
+  await expect(rulers).toHaveCount(2);
+  await expect(page.locator(".ruler-label:not(.ruler-total)")).toHaveCount(2);
+  await expect(rulers.first().locator("text")).toHaveText(individual!);
+  const total = `Total ${(170 / (Math.min(box.width, box.height) / 20000) / 1000).toFixed(1)} km`;
+  await expect(totals).toHaveText(total);
+  expect(await totals.evaluate((node) => getComputedStyle(node).fontSize)).toBe("12px");
+  await expect(rulers.first().locator("rect")).toHaveAttribute("height", "3");
+  await drag(x, y + 150, x + 90, y + 150);
+  await expect(rulers).toHaveCount(3);
+  await expect(totals).toHaveCount(1);
+  await page.screenshot({ path: testInfo.outputPath("ruler-total.png") });
+  await canvas.press("+");
+  await expect(totals).toHaveText(total);
+  await canvas.click({ button: "right" });
+  await expect(rulers).toHaveCount(2);
+  await expect(totals).toHaveText(total);
+  await canvas.click({ button: "right" });
+  await expect(rulers).toHaveCount(1);
+  await expect(totals).toHaveCount(0);
+  await expect(rulers.first().locator("text")).toHaveText(individual!);
 });

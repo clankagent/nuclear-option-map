@@ -75,6 +75,8 @@ Choose a map from the upper-left menu and a view from the header tabs or Layers 
 
 Click the footer scale to enable temporary measurement. Click and drag on the map to draw a ruler, then drag again to add another. Ruler marks use the same spacing as the footer scale. Right-click removes the latest ruler. Escape or another click on the scale clears the rulers and exits. Rulers follow the map during zoom and keyboard navigation, but are never saved or included in links. Changing maps clears them.
 
+Endpoints within 10 screen pixels join a measurement group without moving either ruler. Each ruler keeps its own length label; the group also shows its combined total below its newest visible ruler. Connections stay joined during zoom. Lines that cross away from their endpoints remain separate.
+
 Places retains saved locations and JSON import/export. Select a location to move the map to it. Outside measurement mode, right-click, long-press, or press Shift+F10 to copy coordinates, copy the grid reference, center the map, or zoom in. Pin-placement and the former toolbar measurement workflow remain removed.
 
 Copy view link shares the map, view, center, and zoom. Links to views above 400× enable extended zoom. The address updates as you move, so reloading restores the current view. Search clears after a jump; Escape clears its text first, then closes it. On phones, panels open above the toolbar. Tap outside a panel or drag its handle down to close it.
