@@ -1,7 +1,7 @@
 import { gridRowLabel } from "../../src/catalog";
 
 export type UnitSystem = "metric" | "nautical";
-type Point = { x: number; z: number };
+export type Point = { x: number; z: number };
 type GridMap = {
   widthMeters: number;
   heightMeters: number;
@@ -18,48 +18,12 @@ export type ParsedLocation =
   | { kind: "point"; x: number; z: number };
 
 const NM_METERS = 1852;
-const KNOT_METERS_PER_SECOND = NM_METERS / 3600;
-/** Approximate speed of sound at sea level, in knots. */
-export const MACH_1_KNOTS = 661.5;
 const group = (value: string) => value.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 const fixed = (value: number, digits: number) => {
   const result = value.toFixed(digits);
   const [whole, fraction] = result.split(".");
   return group(whole) + (fraction === undefined ? "" : `.${fraction}`);
 };
-const normalize = (degrees: number) => ((degrees % 360) + 360) % 360;
-
-export function distanceMeters(a: Point, b: Point): number {
-  return Math.hypot(b.x - a.x, b.z - a.z);
-}
-export function bearingDegrees(a: Point, b: Point): number {
-  return normalize((Math.atan2(b.x - a.x, b.z - a.z) * 180) / Math.PI);
-}
-export function cardinal(deg: number): string {
-  const points = [
-    "N",
-    "NNE",
-    "NE",
-    "ENE",
-    "E",
-    "ESE",
-    "SE",
-    "SSE",
-    "S",
-    "SSW",
-    "SW",
-    "WSW",
-    "W",
-    "WNW",
-    "NW",
-    "NNW",
-  ];
-  return points[Math.round(normalize(deg) / 22.5) % 16];
-}
-export function formatBearing(deg: number): string {
-  const rounded = Math.round(normalize(deg)) % 360;
-  return `${String(rounded).padStart(3, "0")}° ${cardinal(deg)}`;
-}
 export function formatDistance(meters: number, units: UnitSystem): string {
   const magnitude = Math.abs(meters);
   if ((units === "metric" || units === "nautical") && magnitude > 0 && magnitude < 1)
@@ -77,22 +41,6 @@ export function formatDistance(meters: number, units: UnitSystem): string {
 export function formatCoordinate(v: number): string {
   return fixed(Math.round(v), 0);
 }
-export function knotsToMetersPerSecond(knots: number): number {
-  return knots * KNOT_METERS_PER_SECOND;
-}
-export function travelTimeSeconds(meters: number, speedKnots: number): number {
-  return meters / knotsToMetersPerSecond(speedKnots);
-}
-export function formatDuration(seconds: number): string {
-  const total = Math.max(0, Math.round(seconds));
-  const hours = Math.floor(total / 3600),
-    minutes = Math.floor((total % 3600) / 60),
-    remainder = total % 60;
-  if (hours) return `${hours}h ${String(minutes).padStart(2, "0")}m`;
-  if (minutes) return `${minutes}m ${String(remainder).padStart(2, "0")}s`;
-  return `${remainder}s`;
-}
-
 /** Choose a 1/2/5 scale in meters or nautical miles, favoring the center of the requested width. */
 export function niceScaleBar(
   metersPerPixel: number,

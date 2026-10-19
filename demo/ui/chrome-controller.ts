@@ -1,6 +1,6 @@
 import { $ } from "./dom";
 import type { AppContext } from "./app-context";
-import { icon } from "./icons";
+import { icon, type IconName } from "./icons";
 import { statusChip } from "./status-chip";
 import { saveSettings } from "./store";
 
@@ -9,7 +9,7 @@ export class ChromeController {
   private lastStatusFetch = 0;
   constructor(private app: AppContext) {}
   fillIcons() {
-    const entries: [string, string][] = [
+    const entries: [string, IconName][] = [
       ["chevron-icon", "chevron"],
       ["search-icon", "search"],
       ["search-open", "search"],

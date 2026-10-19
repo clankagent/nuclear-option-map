@@ -1,22 +1,11 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { gridReference } from '../../src/catalog';
-import { bearingDegrees, cardinal, distanceMeters, formatBearing, formatCoordinate, formatDistance, formatDuration, knotsToMetersPerSecond, MACH_1_KNOTS, niceScaleBar, parseLocation, travelTimeSeconds } from '../../demo/ui/geo';
+import { formatCoordinate, formatDistance, niceScaleBar, parseLocation } from '../../demo/ui/geo';
 
 const map = { id: 'test', name: 'Test', image: 'test.png', widthMeters: 100000, heightMeters: 100000, grid: { columns: 10, rows: 10, offsetX: 50000, offsetY: 50000 } };
 
 describe('map geometry and formatting', () => {
-  it('measures world meters and true bearings clockwise from north', () => {
-    const origin = { x: 0, z: 0 };
-    expect(distanceMeters(origin, { x: 3000, z: 4000 })).toBe(5000);
-    expect(bearingDegrees(origin, { x: 0, z: 1 })).toBe(0);
-    expect(bearingDegrees(origin, { x: 1, z: 0 })).toBe(90);
-    expect(bearingDegrees(origin, { x: -1, z: 0 })).toBe(270);
-    expect(cardinal(22.5)).toBe('NNE');
-    expect(cardinal(360)).toBe('N');
-    expect(formatBearing(45)).toBe('045° NE');
-    expect(formatBearing(359.8)).toBe('000° N');
-  });
-  it('formats distances, coordinates, speeds and times without locale dependence', () => {
+  it('formats distances and coordinates without locale dependence', () => {
     expect(formatDistance(742, 'metric')).toBe('742 m');
     expect(formatDistance(.175, 'metric')).toBe('0.17 m');
     expect(formatDistance(.175, 'nautical')).toBe('0.17 m');
@@ -28,12 +17,6 @@ describe('map geometry and formatting', () => {
     expect(formatDistance(1852, 'nautical')).toBe('1.0 nm');
     expect(formatDistance(185200, 'nautical')).toBe('100 nm');
     expect(formatCoordinate(-4500.2)).toBe('-4,500');
-    expect(knotsToMetersPerSecond(3600)).toBeCloseTo(1852);
-    expect(MACH_1_KNOTS).toBe(661.5);
-    expect(travelTimeSeconds(1852, 600)).toBe(6);
-    expect(formatDuration(3930)).toBe('1h 05m');
-    expect(formatDuration(750)).toBe('12m 30s');
-    expect(formatDuration(45)).toBe('45s');
   });
   it('chooses a nice bar in either unit system', () => {
     for (const units of ['metric', 'nautical'] as const) {

@@ -1,6 +1,6 @@
 import type { AppContext } from "./app-context";
 import { gridReference } from "../../src/catalog";
-import type { Point } from "./tools";
+import type { Point } from "./geo";
 
 export class ContextController {
   constructor(private app: AppContext) {}

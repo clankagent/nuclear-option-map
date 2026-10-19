@@ -78,7 +78,6 @@ export class DrawerController {
       },
       onExport: () => this.app.pinsController.exportPinFile(),
       onImport: (file) => void this.app.pinsController.importPinFile(file),
-      onCopy: (value) => void this.app.clipboard.copyText(value),
       onView: (id) => void this.app.catalog.switchView(id),
       onShortcuts: () => this.app.showShortcuts(),
       onCopyLink: () => void this.app.permalink.copyLink(),

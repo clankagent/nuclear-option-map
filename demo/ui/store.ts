@@ -12,7 +12,6 @@ export type Settings = {
   topoStrength: number;
   topoHillshade: boolean;
   units: UnitSystem;
-  speedKnots: number;
   minimap: boolean;
   minimapCollapsed: boolean;
 };
@@ -26,7 +25,6 @@ export const DEFAULT_SETTINGS: Settings = {
   topoStrength: 0.45,
   topoHillshade: true,
   units: "metric",
-  speedKnots: 600,
   minimap: true,
   minimapCollapsed: false,
 };
@@ -88,8 +86,6 @@ export function loadSettings(storage?: Pick<Storage, "getItem">): Settings {
         out.topoHillshade = raw.topoHillshade;
       if (currentSettings) {
         if (raw.units === "metric" || raw.units === "nautical") out.units = raw.units;
-        if (typeof raw.speedKnots === "number" && Number.isFinite(raw.speedKnots))
-          out.speedKnots = Math.max(50, Math.min(2000, raw.speedKnots));
         if (typeof raw.minimap === "boolean") out.minimap = raw.minimap;
         if (typeof raw.minimapCollapsed === "boolean") out.minimapCollapsed = raw.minimapCollapsed;
       }
@@ -207,13 +203,4 @@ export function mergePins(existing: Pin[], incoming: Pin[]): Pin[] {
       ids.add(pin.id);
     }
   return result;
-}
-export function newPinId(): string {
-  try {
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
-      return crypto.randomUUID();
-  } catch {
-    /* Use fallback. */
-  }
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 14)}`;
 }

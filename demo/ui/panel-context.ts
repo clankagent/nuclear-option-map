@@ -1,6 +1,6 @@
 import type { MapSession } from "../map-session";
 import type { Settings, Pin } from "./store";
-import type { Point } from "./tools";
+import type { Point } from "./geo";
 
 export type PanelKind = "settings" | "places" | "layers";
 export type PanelContext = {
@@ -12,7 +12,6 @@ export type PanelContext = {
   onFly: (point: Point) => void;
   onExport: () => void;
   onImport: (file: File) => void;
-  onCopy: (text: string) => void;
   onView: (id: string) => void;
   onShortcuts: () => void;
   onCopyLink: () => void;

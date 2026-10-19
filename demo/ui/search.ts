@@ -1,15 +1,13 @@
 import type { MapDefinition } from "../../src/catalog";
 import { parseLocation, type ParsedLocation } from "./geo";
-import type { Pin } from "./store";
 export type SearchResult = {
   label: string;
   detail: string;
   x: number;
   z: number;
   location?: ParsedLocation;
-  pinId?: string;
 };
-export function searchLocations(query: string, map: MapDefinition, pins: Pin[]): SearchResult[] {
+export function searchLocations(query: string, map: MapDefinition): SearchResult[] {
   const value = query.trim();
   if (!value) return [];
   const location = parseLocation(value, map);
@@ -27,12 +25,5 @@ export function searchLocations(query: string, map: MapDefinition, pins: Pin[]):
         },
       ]
     : [];
-  const terms = value.toLowerCase().split(/\s+/);
-  results.push(
-    ...pins
-      .filter((pin) => terms.every((term) => pin.name.toLowerCase().includes(term)))
-      .slice(0, 8)
-      .map((pin) => ({ label: pin.name, detail: "Saved pin", x: pin.x, z: pin.z, pinId: pin.id })),
-  );
   return results;
 }

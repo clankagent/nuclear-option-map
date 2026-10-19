@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vite-plus/test';
-import { DEFAULT_SETTINGS, exportPins, loadPins, loadSettings, mergePins, newPinId, parsePinImport, savePins, saveSettings, type Pin } from '../../demo/ui/store';
+import { describe, expect, it } from 'vite-plus/test';
+import { DEFAULT_SETTINGS, exportPins, loadPins, loadSettings, mergePins, parsePinImport, savePins, saveSettings, type Pin } from '../../demo/ui/store';
 
 function memory(initial: Record<string, string> = {}) {
   const values = new Map(Object.entries(initial));
@@ -13,10 +13,8 @@ describe('demo settings persistence', () => {
   it('uses v4 defaults and saves new preferences', () => {
     expect(loadSettings(memory())).toEqual(DEFAULT_SETTINGS);
     const storage = memory();
-    saveSettings({ ...DEFAULT_SETTINGS, units: 'nautical', speedKnots: 750, minimap: false, minimapCollapsed: true }, storage);
-    expect(loadSettings(storage)).toMatchObject({ units: 'nautical', speedKnots: 750, minimap: false, minimapCollapsed: true });
-    expect(loadSettings(saved(4, { speedKnots: 99999 } )).speedKnots).toBe(2000);
-    expect(loadSettings(saved(4, { speedKnots: -1 } )).speedKnots).toBe(50);
+    saveSettings({ ...DEFAULT_SETTINGS, units: 'nautical', minimap: false, minimapCollapsed: true }, storage);
+    expect(loadSettings(storage)).toMatchObject({ units: 'nautical', minimap: false, minimapCollapsed: true });
   });
   it('preserves the exact legacy interval and topo migration gates', () => {
     const legacy = { grid: false, labels: 'cells', tint: '#ABCDEF', contourInterval: 100, contourSmoothingMeters: 60, topoStyle: 'lowlands-dark', topoStrength: .7, topoHillshade: false };
@@ -57,11 +55,5 @@ describe('map pins', () => {
     expect(parsePinImport(JSON.stringify({ schemaVersion: 1, maps: { unknown: [pin] } }), maps).ok).toBe(false);
     expect(parsePinImport('x'.repeat(256 * 1024 + 1), maps).ok).toBe(false);
     expect(parsePinImport('{', maps).ok).toBe(false);
-  });
-  it('uses crypto UUIDs when available', () => {
-    vi.stubGlobal('crypto', { randomUUID: () => 'uuid-value' });
-    expect(newPinId()).toBe('uuid-value');
-    vi.unstubAllGlobals();
-    expect(newPinId()).toMatch(/^[a-z0-9-]{1,40}$/i);
   });
 });

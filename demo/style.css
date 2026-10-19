@@ -1,7 +1,6 @@
 /*
  * Chart-sheet chrome. The map is the sheet; the interface is its margin:
- * flat solid bands attached to the edges, hairline rules, condensed lettering,
- * and one route color shared with the drawn flight plan.
+ * flat solid bands attached to the edges, hairline rules, and condensed lettering.
  */
 
 :root {
@@ -14,7 +13,6 @@
   --ink: #ece8de;
   --ink-2: #bcb7ab;
   --muted: #8a867c;
-  --route: #c8177a;
   --live: #5fb37a;
   --warn: #d9a02b;
   --danger: #d0523f;
@@ -387,10 +385,6 @@ kbd {
   color: var(--chrome);
 }
 
-.strip-rule {
-  height: 12px;
-  border-bottom: 1px solid var(--rule);
-}
 
 .layers-open {
   display: none;
@@ -732,121 +726,6 @@ section > .pin-row[aria-pressed] {
 
 .drawer-body .danger {
   color: var(--danger);
-}
-
-/* Measurement */
-
-.measure-total {
-  display: grid;
-  padding-left: 12px;
-  border-left: 3px solid var(--route);
-}
-
-.measure-total .eyebrow {
-  margin: 0;
-}
-
-.measure-total strong {
-  font-size: 30px;
-  font-weight: 600;
-  line-height: 1.1;
-}
-
-.measure-total span:last-child {
-  color: var(--muted);
-}
-
-.data-table {
-  width: 100%;
-  margin-top: 14px;
-  border-collapse: collapse;
-  font-size: 12.5px;
-}
-
-.data-table th {
-  padding: 0 0 6px;
-  border-bottom: 1px solid var(--rule-strong);
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-align: left;
-  text-transform: uppercase;
-}
-
-.data-table td {
-  padding: 6px 0;
-  border-bottom: 1px solid var(--rule);
-}
-
-.data-table th:last-child,
-.data-table td:last-child {
-  text-align: right;
-}
-
-.travel-table td button {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--ink-2);
-}
-
-.travel-table tr.selected td,
-.travel-table tr.selected button {
-  color: var(--ink);
-  font-weight: 600;
-}
-
-.travel-table tr.selected td:first-child {
-  padding-left: 8px;
-  box-shadow: inset 3px 0 0 var(--route);
-}
-
-.drawer-body details {
-  margin-top: 10px;
-}
-
-.drawer-body summary {
-  color: var(--muted);
-  font-size: 12.5px;
-  cursor: pointer;
-}
-
-.point-list {
-  margin: 6px 0 0;
-  padding-left: 22px;
-  color: var(--ink-2);
-  font-size: 12px;
-}
-
-/* Pins and places */
-
-.pin-form .row {
-  margin-top: 10px;
-}
-
-.swatch {
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 2px solid var(--chrome);
-  border-radius: 50%;
-  box-shadow: 0 0 0 1px var(--rule-strong);
-}
-
-.swatch[aria-pressed="true"] {
-  box-shadow: 0 0 0 2px var(--ink);
-}
-
-.pin-coordinates {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 12px;
-  padding: 2px 2px 2px 10px;
-  border: 1px solid var(--rule);
-  background: var(--field);
-  color: var(--ink-2);
 }
 
 .place-item {
@@ -1233,9 +1112,6 @@ dialog::backdrop {
     border-right: 0;
   }
 
-  .strip-rule {
-    display: none;
-  }
 
   .sheet-foot {
     gap: 12px;

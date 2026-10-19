@@ -1,24 +1,16 @@
-export type SharedPin = { name: string; x: number; z: number };
 export type ViewHash = {
   map?: string;
   variant?: string;
   centerX?: number;
   centerZ?: number;
   zoom?: number;
-  sharedPins?: SharedPin[];
 };
 
 const idPattern = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
-const controls = /[\u0000-\u001f\u007f-\u009f]/g;
 const coordinate = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= 1e6;
 const zoom = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value) && value >= 0.25 && value <= 1024;
-const cleanName = (value: unknown): string | null => {
-  if (typeof value !== "string") return null;
-  const name = value.replace(controls, "").trim();
-  return name.length >= 1 && name.length <= 40 ? name : null;
-};
 const decode = (value: string): string | null => {
   try {
     return decodeURIComponent(value);
@@ -55,20 +47,6 @@ export function parseHash(hash: string): ViewHash {
     }
     const parsedZoom = numberValue(fields.get("k") ?? "");
     if (zoom(parsedZoom)) result.zoom = parsedZoom;
-    const shared = fields.get("p");
-    if (shared) {
-      const pins: SharedPin[] = [];
-      for (const entry of shared.split(",")) {
-        if (pins.length === 8) break;
-        const pieces = entry.split("~");
-        if (pieces.length !== 3) continue;
-        const name = cleanName(decode(pieces[0])),
-          x = numberValue(pieces[1]),
-          z = numberValue(pieces[2]);
-        if (name && coordinate(x) && coordinate(z)) pins.push({ name, x, z });
-      }
-      if (pins.length) result.sharedPins = pins;
-    }
   } catch {
     /* malformed hashes have no navigation effect */
   }
@@ -85,15 +63,5 @@ export function buildHash(view: ViewHash): string {
   if (coordinate(view.centerX)) fields.push(`cx=${Math.round(view.centerX)}`);
   if (coordinate(view.centerZ)) fields.push(`cz=${Math.round(view.centerZ)}`);
   if (zoom(view.zoom)) fields.push(`k=${Number(view.zoom.toFixed(2))}`);
-  const pins =
-    view.sharedPins?.slice(0, 8).flatMap((pin) => {
-      const name = cleanName(pin.name);
-      return name && coordinate(pin.x) && coordinate(pin.z)
-        ? [
-            `${encodeURIComponent(name).replace(/~/g, "%7E")}~${Math.round(pin.x)}~${Math.round(pin.z)}`,
-          ]
-        : [];
-    }) ?? [];
-  if (pins.length) fields.push(`p=${pins.join(",")}`);
   return `#${fields.join("&")}`;
 }

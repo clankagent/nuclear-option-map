@@ -11,7 +11,7 @@ export class SearchController {
       input = $<HTMLInputElement>("jump-input"),
       host = $("jump-results");
     if (!map) return;
-    this.searchResults = searchLocations(input.value, map, []);
+    this.searchResults = searchLocations(input.value, map);
     host.replaceChildren();
     host.hidden = !input.value.trim();
     input.setAttribute("aria-expanded", String(!host.hidden));

@@ -1,5 +1,5 @@
 import type { AppContext } from "./app-context";
-import type { Point } from "./tools";
+import type { Point } from "./geo";
 
 export class PointerController {
   private pointerDown: {
